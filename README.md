@@ -2,7 +2,7 @@
 
 A lightweight KPI tracking app that runs in your browser and stores data in your own Google Sheet. Define your KPIs, log work against them, and export reports.
 
-**Live app:** [https://yourusername.github.io/kpi-tracker/](https://yourusername.github.io/kpi-tracker/)
+**Live app:** [https://deronmotha-hash.github.io/KPI-Tracker/](https://deronmotha-hash.github.io/KPI-Tracker/)
 
 ## Features
 
