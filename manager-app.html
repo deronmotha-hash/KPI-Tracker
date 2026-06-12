@@ -7118,6 +7118,8 @@ function ManagerApp() {
   const [taskForm, setTaskForm] = reactExports.useState(blankTask);
   const [taskTargets, setTaskTargets] = reactExports.useState([]);
   const [confirmDeleteTask, setConfirmDeleteTask] = reactExports.useState(null);
+  const [editingTask, setEditingTask] = reactExports.useState(null);
+  const [editTaskForm, setEditTaskForm] = reactExports.useState({ title: "", description: "", due: "" });
   const [empLoading, setEmpLoading] = reactExports.useState(false);
   const [loading, setLoading] = reactExports.useState(true);
   const [syncing, setSyncing] = reactExports.useState(false);
@@ -7347,6 +7349,23 @@ function ManagerApp() {
     }
     setSyncing(false);
   };
+  const updateTask = async () => {
+    if (!editingTask || !editTaskForm.title) return;
+    const emp = employees.find((e) => e.id === selectedEmpId);
+    if (!emp?.apiUrl) return;
+    const updated = { id: editingTask, ...editTaskForm };
+    setEmpData((prev) => ({ ...prev, appraisals: prev.appraisals.map((a) => a.id === editingTask ? { ...a, title: updated.title, description: updated.description, due: updated.due } : a) }));
+    setEditingTask(null);
+    setSyncing(true);
+    try {
+      const r2 = await postToEmployee(emp.apiUrl, "updateAppraisal", { data: updated });
+      if (r2.error) flash(r2.error, false);
+      else flash("Task updated", true);
+    } catch (e) {
+      flash("Update failed", false);
+    }
+    setSyncing(false);
+  };
   const getReview = (kpiId) => reviews.find((r2) => r2.employeeId === selectedEmpId && r2.kpiId === kpiId);
   const openReview = (kpiId) => {
     const existing = getReview(kpiId);
@@ -7355,7 +7374,7 @@ function ManagerApp() {
   };
   const saveReview = async () => {
     if (!editingReview || !selectedEmpId) return;
-    const score = reviewForm.score === "" ? "" : Math.max(0, Math.min(100, Number(reviewForm.score)));
+    const score = reviewForm.score === "" ? "" : Math.max(0, Math.min(200, Math.round(Number(reviewForm.score))));
     const rev = { employeeId: selectedEmpId, kpiId: editingReview, score, notes: reviewForm.notes };
     setReviews((prev) => {
       const existing = prev.find((r2) => r2.employeeId === selectedEmpId && r2.kpiId === editingReview);
@@ -7440,7 +7459,7 @@ function ManagerApp() {
       flash("Export failed", false);
     }
   };
-  const ReviewBlock = ({ kpi }) => {
+  const renderReviewBlock = (kpi) => {
     const rev = getReview(kpi.id);
     const isEditing = editingReview === kpi.id;
     if (isEditing) {
@@ -7453,7 +7472,8 @@ function ManagerApp() {
             {
               type: "number",
               min: "0",
-              max: "100",
+              max: "200",
+              step: "1",
               value: reviewForm.score,
               onChange: (e) => setReviewForm({ ...reviewForm, score: e.target.value }),
               style: S.input
@@ -7496,7 +7516,7 @@ function ManagerApp() {
       /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.linkBtn, marginTop: 8, padding: "4px 0" }, onClick: () => openReview(kpi.id), children: rev ? "Edit review" : "Add review" })
     ] });
   };
-  const EmployeeSelector = () => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.selectorBar, children: [
+  const renderEmployeeSelector = () => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.selectorBar, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: selectedEmpId, onChange: (e) => setSelectedEmpId(e.target.value), style: { ...S.input, maxWidth: 320 }, children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "Select employee…" }),
       employees.map((e) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: e.id, children: [
@@ -7581,7 +7601,7 @@ function ManagerApp() {
             " KPIs"
           ] })
         ] }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(EmployeeSelector, {}),
+        renderEmployeeSelector(),
         !selectedEmpId && noEmpMessage,
         selectedEmpId && !empLoading && kpis.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.empty, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.emptyText, children: "No KPI data found for this employee." }),
@@ -7637,7 +7657,7 @@ function ManagerApp() {
                     children: "See all in Work Log →"
                   }
                 ),
-                /* @__PURE__ */ jsxRuntimeExports.jsx(ReviewBlock, { kpi: k2 })
+                renderReviewBlock(k2)
               ] })
             ] })
           ] }, k2.id);
@@ -7666,7 +7686,7 @@ function ManagerApp() {
           /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { style: S.h1, children: "Work Log" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.subtitle, children: selectedEmp ? selectedEmp.name + " — read-only view" : "Read-only view" })
         ] }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(EmployeeSelector, {}),
+        renderEmployeeSelector(),
         !selectedEmpId && noEmpMessage,
         selectedEmpId && entries.length === 0 && !empLoading && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.empty, children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.emptyText, children: "No entries logged yet." }) }),
         selectedEmpId && entries.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 8 }, children: [
@@ -7711,7 +7731,7 @@ function ManagerApp() {
           /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { style: S.h1, children: "KPI Framework" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.subtitle, children: selectedEmp ? selectedEmp.name + "'s KPIs — read-only, with your reviews" : "Read-only view" })
         ] }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(EmployeeSelector, {}),
+        renderEmployeeSelector(),
         !selectedEmpId && noEmpMessage,
         selectedEmpId && kpis.map((k2) => {
           const isExpanded = expandedKpi === k2.id;
@@ -7750,7 +7770,7 @@ function ManagerApp() {
                 /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: S.fwSectionTitle, children: "Reporting & tracking" }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 13, color: "#444", lineHeight: 1.5, margin: 0 }, children: k2.reporting })
               ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(ReviewBlock, { kpi: k2 })
+              renderReviewBlock(k2)
             ] })
           ] }, k2.id);
         })
@@ -7835,7 +7855,7 @@ function ManagerApp() {
             ] })
           ] })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(EmployeeSelector, {}),
+        renderEmployeeSelector(),
         !selectedEmpId && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.empty, children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.emptyText, children: "Select an employee to see their assigned tasks." }) }),
         selectedEmpId && appraisals.length === 0 && !empLoading && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.empty, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: S.emptyText, children: [
           "No tasks assigned to ",
@@ -7859,15 +7879,39 @@ function ManagerApp() {
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 11, fontWeight: 700, color: "#fff", padding: "3px 10px", borderRadius: 4, background: statusColor }, children: statusLabel })
             ] }),
             a.response && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 13, color: "#444", lineHeight: 1.6, margin: "10px 0 0", whiteSpace: "pre-wrap", background: "#f8f6f1", borderRadius: 8, padding: "12px 14px" }, children: a.response }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", gap: 6, marginTop: 10, alignItems: "center" }, children: confirmDeleteTask === a.id ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { fontSize: 13, color: "#b44" }, children: [
-                "Remove this task",
-                a.response ? " and the response" : "",
-                "?"
+            editingTask === a.id && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 12, borderTop: "1px solid #f0ede6", paddingTop: 12 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fieldWrap, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Title" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: editTaskForm.title, onChange: (e) => setEditTaskForm({ ...editTaskForm, title: e.target.value }), style: S.input })
               ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.linkBtn, color: "#b44" }, onClick: () => deleteTask(a.id), children: "Yes" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.linkBtn, onClick: () => setConfirmDeleteTask(null), children: "No" })
-            ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.linkBtn, color: "#b44" }, onClick: () => setConfirmDeleteTask(a.id), children: "Remove task" }) })
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, marginTop: 10 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Instructions" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { value: editTaskForm.description, onChange: (e) => setEditTaskForm({ ...editTaskForm, description: e.target.value }), style: { ...S.input, minHeight: 60, resize: "vertical" } })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, marginTop: 10, maxWidth: 200 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Due date" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "date", value: editTaskForm.due, onChange: (e) => setEditTaskForm({ ...editTaskForm, due: e.target.value }), style: S.input })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.secondaryBtn, onClick: () => setEditingTask(null), children: "Cancel" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.primaryBtn, opacity: editTaskForm.title ? 1 : 0.4 }, disabled: !editTaskForm.title, onClick: updateTask, children: "Save Changes" })
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 6, marginTop: 10, alignItems: "center" }, children: [
+              editingTask !== a.id && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.linkBtn, onClick: () => {
+                setEditingTask(a.id);
+                setEditTaskForm({ title: a.title, description: a.description || "", due: a.due || "" });
+              }, children: "Edit task" }),
+              confirmDeleteTask === a.id ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { fontSize: 13, color: "#b44" }, children: [
+                  "Remove this task",
+                  a.response ? " and the response" : "",
+                  "?"
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.linkBtn, color: "#b44" }, onClick: () => deleteTask(a.id), children: "Yes" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.linkBtn, onClick: () => setConfirmDeleteTask(null), children: "No" })
+              ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.linkBtn, color: "#b44" }, onClick: () => setConfirmDeleteTask(a.id), children: "Remove task" })
+            ] })
           ] }, a.id);
         })
       ] }),
