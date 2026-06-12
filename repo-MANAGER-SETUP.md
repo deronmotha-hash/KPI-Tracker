@@ -2,7 +2,7 @@
 
 The manager app lets you view your team's KPI trackers (read-only), add review scores and notes, assign appraisal tasks, and export review reports.
 
-**Manager app:** [https://yourusername.github.io/kpi-tracker/manager-app.html](https://yourusername.github.io/kpi-tracker/manager-app.html)
+**Manager app:** [https://deronmotha-hash.github.io/KPI-Tracker/manager-app.html](https://deronmotha-hash.github.io/KPI-Tracker/manager-app.html)
 
 ## How it works
 
