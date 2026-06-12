@@ -7353,6 +7353,57 @@ function KPITracker() {
       flash("CSV export failed", false);
     }
   };
+  const importFileRef = reactExports.useRef(null);
+  const importBackup = async (file) => {
+    if (!file) return;
+    let payload = null;
+    try {
+      const text = await file.text();
+      const m2 = text.match(/<script type="application\/json" id="kpi-backup-data">([\s\S]*?)<\/script>/);
+      payload = JSON.parse(m2 ? m2[1] : text);
+    } catch (e) {
+      flash("Could not read backup — not a valid export file", false);
+      return;
+    }
+    if (!payload || payload.format !== "kpi-tracker-backup" || !Array.isArray(payload.entries)) {
+      flash("File has no KPI backup data — re-export with the latest app version", false);
+      return;
+    }
+    const existingKpiIds = new Set(kpis.map((k2) => String(k2.id)));
+    const existingEntryIds = new Set(entries.map((e) => String(e.id)));
+    const newKpis = (payload.kpis || []).filter((k2) => k2.id && !existingKpiIds.has(String(k2.id)));
+    const newEntries = (payload.entries || []).filter((e) => e.id && !existingEntryIds.has(String(e.id))).map((e) => ({ ...e, date: normDate(e.date) }));
+    if (!newKpis.length && !newEntries.length) {
+      flash("Nothing to import — all records already exist", true);
+      return;
+    }
+    setSyncing(true);
+    let failed = 0;
+    for (const k2 of newKpis) {
+      try {
+        const r2 = await apiPost("addKpi", { data: k2 });
+        if (r2.error) failed++;
+      } catch (e) {
+        failed++;
+      }
+    }
+    for (const e of newEntries) {
+      try {
+        const r2 = await apiPost("addEntry", { data: e });
+        if (r2.error) failed++;
+      } catch (err) {
+        failed++;
+      }
+    }
+    if (!failed) {
+      setKpis((prev) => [...prev, ...newKpis]);
+      setEntries((prev) => [...newEntries, ...prev]);
+      flash(`Imported ${newKpis.length} KPI${newKpis.length === 1 ? "" : "s"}, ${newEntries.length} entr${newEntries.length === 1 ? "y" : "ies"}`, true);
+    } else {
+      flash(`Import finished with ${failed} failure${failed === 1 ? "" : "s"} — hit refresh to see current state`, false);
+    }
+    setSyncing(false);
+  };
   const exportReport = () => {
     const today = (/* @__PURE__ */ new Date()).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
     const name = getUserName() || "KPI Report";
@@ -7374,7 +7425,8 @@ function KPITracker() {
       ).join("");
       return `<div style="page-break-inside:avoid;margin-bottom:36px;"><div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;border-bottom:3px solid ${k2.color};padding-bottom:10px;"><span style="font-size:22px;font-weight:800;color:${k2.color};font-family:'IBM Plex Mono',monospace;">${i + 1}</span><h2 style="margin:0;font-size:17px;font-weight:700;color:#2d3142;">${esc(k2.name)}</h2></div><p style="font-size:13px;color:#444;line-height:1.6;margin:0 0 14px;">${esc(k2.description || "")}</p>${scopeItems.length ? `<div style="background:#f8f6f1;border-radius:8px;padding:14px 16px;margin-bottom:12px;"><h4 style="margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#999;font-weight:700;">Scope</h4>${scopeItems.map((s2) => `<div style="font-size:12px;color:#444;line-height:1.5;padding:2px 0 2px 14px;position:relative;"><span style="position:absolute;left:0;color:${k2.color};">•</span>${esc(s2)}</div>`).join("")}</div>` : ""}${k2.metrics ? `<div style="background:#f8f6f1;border-radius:8px;padding:14px 16px;margin-bottom:12px;"><h4 style="margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#999;font-weight:700;">Metrics</h4><p style="font-size:12px;color:#444;margin:0;">${esc(k2.metrics)}</p></div>` : ""}${k2.reporting ? `<div style="background:#f8f6f1;border-radius:8px;padding:14px 16px;margin-bottom:12px;"><h4 style="margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#999;font-weight:700;">Reporting</h4><p style="font-size:12px;color:#444;margin:0;">${esc(k2.reporting)}</p></div>` : ""}<div style="display:flex;gap:24px;margin-bottom:14px;"><div><span style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:#2d3142;">${s.count}</span> <span style="font-size:12px;color:#999;">entries</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:#2d3142;">${s.hours.toFixed(1)}</span> <span style="font-size:12px;color:#999;">hours</span></div></div>${logRows ? `<table style="width:100%;border-collapse:collapse;font-family:Manrope,sans-serif;"><thead><tr style="background:#f0ede6;"><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#999;font-weight:700;">Date</th><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#999;font-weight:700;">Detail</th><th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#999;font-weight:700;">Hours</th></tr></thead><tbody>${logRows}</tbody></table>` : `<p style="font-size:13px;color:#aaa;font-style:italic;">No entries yet.</p>`}</div>`;
     }).join("");
-    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>KPI Report — ${today}</title><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"><style>*{box-sizing:border-box}body{font-family:Manrope,sans-serif;max-width:850px;margin:0 auto;padding:40px 32px;color:#2d3142;background:#fff;line-height:1.5}@media print{body{padding:20px}}</style></head><body><div style="border-bottom:3px solid #2d3142;padding-bottom:16px;margin-bottom:32px;"><h1 style="margin:0;font-size:28px;font-weight:800;">KPI Report</h1>${`<p style="margin:6px 0 0;font-size:14px;color:#888;font-family:'IBM Plex Mono',monospace;">${esc(name)}${role ? " · " + esc(role) : ""}</p>`}<p style="margin:4px 0 0;font-size:13px;color:#aaa;font-family:'IBM Plex Mono',monospace;">Generated ${today}</p></div><div style="margin-bottom:36px;"><h2 style="font-size:18px;font-weight:700;margin:0 0 14px;">Summary</h2><div style="display:flex;gap:32px;margin-bottom:16px;"><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${entries.length}</span><br><span style="font-size:12px;color:#999;">entries</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${totalHours.toFixed(1)}</span><br><span style="font-size:12px;color:#999;">hours</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${kpis.length}</span><br><span style="font-size:12px;color:#999;">KPIs</span></div></div></div><div style="border-top:2px solid #e8e6e0;padding-top:28px;">${kpiSections}</div><div style="margin-top:40px;padding-top:16px;border-top:1px solid #e8e6e0;"><p style="font-size:11px;color:#aaa;font-family:'IBM Plex Mono',monospace;">End of report · ${entries.length} entries · ${totalHours.toFixed(1)} hours</p></div></body></html>`;
+    const backupJson = JSON.stringify({ format: "kpi-tracker-backup", version: 1, exported: (/* @__PURE__ */ new Date()).toISOString(), kpis, entries }).replace(/</g, "\\u003c");
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>KPI Report — ${today}</title><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"><style>*{box-sizing:border-box}body{font-family:Manrope,sans-serif;max-width:850px;margin:0 auto;padding:40px 32px;color:#2d3142;background:#fff;line-height:1.5}@media print{body{padding:20px}}</style></head><body><div style="border-bottom:3px solid #2d3142;padding-bottom:16px;margin-bottom:32px;"><h1 style="margin:0;font-size:28px;font-weight:800;">KPI Report</h1>${`<p style="margin:6px 0 0;font-size:14px;color:#888;font-family:'IBM Plex Mono',monospace;">${esc(name)}${role ? " · " + esc(role) : ""}</p>`}<p style="margin:4px 0 0;font-size:13px;color:#aaa;font-family:'IBM Plex Mono',monospace;">Generated ${today}</p></div><div style="margin-bottom:36px;"><h2 style="font-size:18px;font-weight:700;margin:0 0 14px;">Summary</h2><div style="display:flex;gap:32px;margin-bottom:16px;"><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${entries.length}</span><br><span style="font-size:12px;color:#999;">entries</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${totalHours.toFixed(1)}</span><br><span style="font-size:12px;color:#999;">hours</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${kpis.length}</span><br><span style="font-size:12px;color:#999;">KPIs</span></div></div></div><div style="border-top:2px solid #e8e6e0;padding-top:28px;">${kpiSections}</div><div style="margin-top:40px;padding-top:16px;border-top:1px solid #e8e6e0;"><p style="font-size:11px;color:#aaa;font-family:'IBM Plex Mono',monospace;">End of report · ${entries.length} entries · ${totalHours.toFixed(1)} hours</p></div><script type="application/json" id="kpi-backup-data">${backupJson}<\/script></body></html>`;
     try {
       const blob = new Blob([html], { type: "text/html" });
       const url = URL.createObjectURL(blob);
@@ -7440,6 +7492,20 @@ function KPITracker() {
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 16, borderTop: "1px solid #e8e6e0", paddingTop: 12, display: "flex", gap: 12, flexWrap: "wrap" }, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.linkBtn, onClick: exportCsv, children: "Download CSV backup" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.linkBtn, onClick: () => importFileRef.current?.click(), children: "Import backup (HTML export)" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            ref: importFileRef,
+            type: "file",
+            accept: ".html,.json",
+            style: { display: "none" },
+            onChange: (e) => {
+              importBackup(e.target.files?.[0]);
+              e.target.value = "";
+            }
+          }
+        ),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.linkBtn, color: "#b44" }, onClick: () => {
           if (confirm("Reset all KPIs and entries?")) resetData();
         }, children: "Reset all data" })
