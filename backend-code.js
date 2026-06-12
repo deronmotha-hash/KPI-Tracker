@@ -48,6 +48,7 @@ function doPost(e) {
       case 'deleteKpi':   result = deleteKpi(p.id);      break;
       case 'assignAppraisal':  result = assignAppraisal(p.data);  break;
       case 'respondAppraisal': result = respondAppraisal(p.data); break;
+      case 'updateAppraisal':  result = updateAppraisal(p.data);  break;
       case 'deleteAppraisal':  result = deleteAppraisal(p.id);    break;
       case 'resetData':   result = resetAllData();        break;
       default:            result = { error: 'Unknown action: ' + p.action };
@@ -260,6 +261,21 @@ function respondAppraisal(data) {
     }
   }
   return { error: 'Appraisal task not found: ' + data.id };
+}
+
+
+function updateAppraisal(task) {
+  const sheet = getAppraisalsSheet();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === String(task.id)) {
+      // Update title, description, due only — status and response stay with the employee
+      sheet.getRange(i + 1, 2, 1, 2).setValues([[task.title, task.description || '']]);
+      sheet.getRange(i + 1, 5).setValue(task.due || '');
+      return { success: true };
+    }
+  }
+  return { error: 'Appraisal task not found: ' + task.id };
 }
 
 function deleteAppraisal(id) {
