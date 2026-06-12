@@ -46,6 +46,9 @@ function doPost(e) {
       case 'addKpi':      result = addKpi(p.data);       break;
       case 'updateKpi':   result = updateKpi(p.data);    break;
       case 'deleteKpi':   result = deleteKpi(p.id);      break;
+      case 'assignAppraisal':  result = assignAppraisal(p.data);  break;
+      case 'respondAppraisal': result = respondAppraisal(p.data); break;
+      case 'deleteAppraisal':  result = deleteAppraisal(p.id);    break;
       case 'resetData':   result = resetAllData();        break;
       default:            result = { error: 'Unknown action: ' + p.action };
     }
@@ -68,7 +71,8 @@ function send(data) {
 function getAllData() {
   return {
     kpis: readTab('KPIs'),
-    entries: readTab('Entries')
+    entries: readTab('Entries'),
+    appraisals: readTab('Appraisals')
   };
 }
 
@@ -201,6 +205,75 @@ function resetAllData() {
   return { success: true, kpis: [], entries: [] };
 }
 
+
+// ── Appraisals ───────────────────────────────────────────────
+// Columns: id | title | description | assigned | due | status | response | respondedDate
+// Tasks are assigned by the manager app; responses written by the employee app.
+// The tab is created on demand so existing sheets don't need setupSheet rerun.
+
+function getAppraisalsSheet() {
+  let s = ss.getSheetByName('Appraisals');
+  if (!s) {
+    s = ss.insertSheet('Appraisals');
+    s.appendRow(['id', 'title', 'description', 'assigned', 'due', 'status', 'response', 'respondedDate']);
+    s.getRange('A:A').setNumberFormat('@');
+    s.getRange('D:E').setNumberFormat('@');
+    s.getRange('H:H').setNumberFormat('@');
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
+function assignAppraisal(task) {
+  const sheet = getAppraisalsSheet();
+  if (!task.id) task.id = 'apr-' + Date.now().toString();
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(task.id)) {
+      return { success: true, skipped: true };
+    }
+  }
+  sheet.appendRow([
+    task.id,
+    task.title,
+    task.description || '',
+    new Date().toISOString().split('T')[0],
+    task.due || '',
+    'pending',
+    '',
+    ''
+  ]);
+  return { success: true, task: task };
+}
+
+function respondAppraisal(data) {
+  const sheet = getAppraisalsSheet();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === String(data.id)) {
+      sheet.getRange(i + 1, 6, 1, 3).setValues([[
+        data.status || 'completed',
+        data.response || '',
+        new Date().toISOString().split('T')[0]
+      ]]);
+      return { success: true };
+    }
+  }
+  return { error: 'Appraisal task not found: ' + data.id };
+}
+
+function deleteAppraisal(id) {
+  const sheet = getAppraisalsSheet();
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === String(id)) {
+      sheet.deleteRow(i + 1);
+      return { success: true };
+    }
+  }
+  return { error: 'Appraisal task not found: ' + id };
+}
+
 // ── Setup (run once) ─────────────────────────────────────────
 
 function setupSheet() {
@@ -228,6 +301,8 @@ function setupSheet() {
   eSheet.getRange('A:A').setNumberFormat('@');
   eSheet.getRange('B:B').setNumberFormat('@');
   eSheet.autoResizeColumns(1, 7);
+
+  getAppraisalsSheet();
 
   var sheet1 = ss.getSheetByName('Sheet1');
   if (sheet1 && sheet1.getLastRow() === 0) {
