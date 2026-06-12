@@ -7060,6 +7060,11 @@ const IconPen = () => /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "20
   /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M12 20h9" }),
   /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" })
 ] });
+const IconClipboard = () => /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: [
+  /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" }),
+  /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: "8", y: "2", width: "8", height: "4", rx: "1" }),
+  /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m9 14 2 2 4-4" })
+] });
 const IconList = () => /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: [
   /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "8", y1: "6", x2: "21", y2: "6" }),
   /* @__PURE__ */ jsxRuntimeExports.jsx("line", { x1: "8", y1: "12", x2: "21", y2: "12" }),
@@ -7125,6 +7130,9 @@ function KPITracker() {
   const [nameInput, setNameInput] = reactExports.useState(getUserName());
   const [roleInput, setRoleInput] = reactExports.useState(getUserRole());
   const [connected, setConnected] = reactExports.useState(false);
+  const [appraisals, setAppraisals] = reactExports.useState([]);
+  const [editingAppraisal, setEditingAppraisal] = reactExports.useState(null);
+  const [appraisalResponse, setAppraisalResponse] = reactExports.useState("");
   const [toast, setToast] = reactExports.useState(null);
   const toastTimer = reactExports.useRef(null);
   const [isMobile, setIsMobile] = reactExports.useState(typeof window !== "undefined" && window.innerWidth < 640);
@@ -7160,6 +7168,7 @@ function KPITracker() {
         if (data && !data.error) {
           if (data.kpis) setKpis(data.kpis);
           if (data.entries) setEntries(data.entries.map((e) => ({ ...e, date: normDate(e.date) })));
+          if (data.appraisals) setAppraisals(data.appraisals.map((a) => ({ ...a, assigned: normDate(a.assigned), due: normDate(a.due), respondedDate: normDate(a.respondedDate) })));
           setConnected(true);
         } else if (data?.error) {
           flash(data.error, false);
@@ -7270,6 +7279,21 @@ function KPITracker() {
     }
     setSyncing(false);
   };
+  const saveAppraisalResponse = async (id2, status) => {
+    const resp = appraisalResponse;
+    setAppraisals((prev) => prev.map((a) => a.id === id2 ? { ...a, response: resp, status, respondedDate: (/* @__PURE__ */ new Date()).toISOString().split("T")[0] } : a));
+    setEditingAppraisal(null);
+    setAppraisalResponse("");
+    setSyncing(true);
+    try {
+      const r2 = await apiPost("respondAppraisal", { data: { id: id2, response: resp, status } });
+      if (r2.error) flash(r2.error, false);
+      else flash(status === "completed" ? "Response submitted" : "Draft saved", true);
+    } catch (e) {
+      flash("Save failed", false);
+    }
+    setSyncing(false);
+  };
   const saveSettings = async () => {
     setApiUrl(apiUrlInput);
     setUserName(nameInput);
@@ -7281,6 +7305,7 @@ function KPITracker() {
       if (data && !data.error) {
         if (data.kpis) setKpis(data.kpis);
         if (data.entries) setEntries(data.entries.map((e) => ({ ...e, date: normDate(e.date) })));
+        if (data.appraisals) setAppraisals(data.appraisals.map((a) => ({ ...a, assigned: normDate(a.assigned), due: normDate(a.due), respondedDate: normDate(a.respondedDate) })));
         setConnected(true);
         flash("Connected", true);
       } else {
@@ -7300,6 +7325,7 @@ function KPITracker() {
       if (data && !data.error) {
         if (data.kpis) setKpis(data.kpis);
         if (data.entries) setEntries(data.entries.map((e) => ({ ...e, date: normDate(e.date) })));
+        if (data.appraisals) setAppraisals(data.appraisals.map((a) => ({ ...a, assigned: normDate(a.assigned), due: normDate(a.due), respondedDate: normDate(a.respondedDate) })));
         setConnected(true);
         flash("Refreshed", true);
       } else {
@@ -7463,7 +7489,7 @@ function KPITracker() {
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: S.logoIcon, children: "◆" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: S.logoText, children: "KPI Tracker" })
       ] }),
-      !isMobile && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.navItems, children: [["dashboard", "Dashboard"], ["log", "Work Log"], ["framework", "Framework"]].map(([key, label]) => /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => setTab(key), style: { ...S.navBtn, ...tab === key ? S.navBtnActive : {} }, children: label }, key)) }),
+      !isMobile && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.navItems, children: [["dashboard", "Dashboard"], ["log", "Work Log"], ["framework", "Framework"], ["appraisal", "Appraisal"]].map(([key, label]) => /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => setTab(key), style: { ...S.navBtn, ...tab === key ? S.navBtnActive : {} }, children: label }, key)) }),
       isMobile && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
         syncing && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#c9962b", animation: "pulse 0.6s infinite" } }),
@@ -7836,9 +7862,70 @@ function KPITracker() {
             ] })
           ] }, k2.id);
         })
+      ] }),
+      tab === "appraisal" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.pageHeader, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { style: S.h1, children: "Appraisal" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.subtitle, children: appraisals.length === 0 ? "No tasks assigned" : appraisals.filter((a) => a.status === "completed").length + " of " + appraisals.length + " completed" })
+        ] }) }),
+        appraisals.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.empty, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.emptyText, children: "No appraisal tasks yet." }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { color: "#888", fontSize: 14 }, children: "Your manager will assign appraisal sections here towards the end of the review period." })
+        ] }),
+        appraisals.map((a) => {
+          const isEditing = editingAppraisal === a.id;
+          const statusColor = a.status === "completed" ? "#4a7c59" : a.status === "draft" ? "#c9962b" : "#999";
+          const statusLabel = a.status === "completed" ? "Completed" : a.status === "draft" ? "Draft saved" : "Pending";
+          return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.entryCard, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 200 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: { fontSize: 15, fontWeight: 700, color: "#2d3142", margin: 0 }, children: a.title }),
+                a.description && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 13, color: "#666", lineHeight: 1.5, margin: "6px 0 0" }, children: a.description }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { fontSize: 11, color: "#bbb", margin: "6px 0 0", fontFamily: "'IBM Plex Mono', monospace" }, children: [
+                  "Assigned ",
+                  fmtDateGB(a.assigned),
+                  a.due ? " · Due " + fmtDateGB(a.due) : ""
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 11, fontWeight: 700, color: "#fff", padding: "3px 10px", borderRadius: 4, background: statusColor, whiteSpace: "nowrap" }, children: statusLabel })
+            ] }),
+            !isEditing && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 12 }, children: [
+              a.response ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { background: "#f8f6f1", borderRadius: 8, padding: "12px 14px" }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 13, color: "#444", lineHeight: 1.6, margin: 0, whiteSpace: "pre-wrap" }, children: a.response }),
+                a.respondedDate && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { fontSize: 11, color: "#aaa", margin: "8px 0 0", fontFamily: "'IBM Plex Mono', monospace" }, children: [
+                  "Last saved ",
+                  fmtDateGB(a.respondedDate)
+                ] })
+              ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 13, color: "#aaa", fontStyle: "italic", margin: 0 }, children: "No response yet." }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.linkBtn, marginTop: 8, padding: "4px 0" }, onClick: () => {
+                setEditingAppraisal(a.id);
+                setAppraisalResponse(a.response || "");
+              }, children: a.response ? "Edit response" : "Write response" })
+            ] }),
+            isEditing && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 12 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "textarea",
+                {
+                  value: appraisalResponse,
+                  onChange: (e) => setAppraisalResponse(e.target.value),
+                  placeholder: "Write your response here…",
+                  style: { ...S.input, minHeight: 140, resize: "vertical", lineHeight: 1.6 }
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10, flexWrap: "wrap" }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.secondaryBtn, onClick: () => {
+                  setEditingAppraisal(null);
+                  setAppraisalResponse("");
+                }, children: "Cancel" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.secondaryBtn, onClick: () => saveAppraisalResponse(a.id, "draft"), children: "Save Draft" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.primaryBtn, onClick: () => saveAppraisalResponse(a.id, "completed"), children: "Submit" })
+              ] })
+            ] })
+          ] }, a.id);
+        })
       ] })
     ] }),
-    isMobile && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.bottomNav, children: [["dashboard", "Dashboard", IconGrid], ["log", "Work Log", IconPen], ["framework", "Framework", IconList]].map(([key, label, Icon]) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { onClick: () => {
+    isMobile && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.bottomNav, children: [["dashboard", "Dashboard", IconGrid], ["log", "Work Log", IconPen], ["framework", "Framework", IconList], ["appraisal", "Appraisal", IconClipboard]].map(([key, label, Icon]) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { onClick: () => {
       setTab(key);
       window.scrollTo({ top: 0 });
     }, style: { ...S.bottomNavBtn, color: tab === key ? "#fff" : "rgba(255,255,255,0.45)" }, children: [
