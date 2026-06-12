@@ -7114,6 +7114,7 @@ function KPITracker() {
   const [showForm, setShowForm] = reactExports.useState(false);
   const [editingEntry, setEditingEntry] = reactExports.useState(null);
   const [expandedKpi, setExpandedKpi] = reactExports.useState(null);
+  const [expandedDashKpi, setExpandedDashKpi] = reactExports.useState(null);
   const [editingFramework, setEditingFramework] = reactExports.useState(null);
   const [showAddKpi, setShowAddKpi] = reactExports.useState(false);
   const [filterKpi, setFilterKpi] = reactExports.useState("all");
@@ -7131,6 +7132,16 @@ function KPITracker() {
     const onResize = () => setIsMobile(window.innerWidth < 640);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const dashGridRef = reactExports.useRef(null);
+  reactExports.useEffect(() => {
+    const onDocClick = (ev) => {
+      if (dashGridRef.current && !dashGridRef.current.contains(ev.target)) {
+        setExpandedDashKpi(null);
+      }
+    };
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
   }, []);
   const blankEntry = { date: (/* @__PURE__ */ new Date()).toISOString().split("T")[0], title: "", description: "", kpiId: kpis[0]?.id || "", hours: 1, evidence: "" };
   const blankKpi = { name: "", color: COLORS[0], description: "", scope: "", metrics: "", reporting: "" };
@@ -7455,17 +7466,50 @@ function KPITracker() {
             setShowAddKpi(true);
           }, children: "Add your first KPI →" })
         ] }),
-        kpis.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.cardGrid, children: kpis.map((k2) => {
+        kpis.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.cardGrid, ref: dashGridRef, children: kpis.map((k2) => {
           const s = stats[k2.id] || { count: 0, recent: null };
-          return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.card, children: [
+          const isOpen = expandedDashKpi === k2.id;
+          const kpiEntries = isOpen ? entries.filter((e) => e.kpiId === k2.id).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5) : [];
+          return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.card, gridColumn: isOpen ? "1 / -1" : "auto", cursor: "pointer" }, onClick: () => setExpandedDashKpi(isOpen ? null : k2.id), children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { height: 4, background: k2.color } }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { padding: "16px 18px 18px" }, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { style: S.cardTitle, children: k2.name }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { style: S.cardTitle, children: k2.name }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { color: "#bbb", fontSize: 12, flexShrink: 0 }, children: isOpen ? "▾" : "▸" })
+              ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.cardStats, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.statBlock, children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: S.statNum, children: s.count }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: S.statLabel, children: s.count === 1 ? "entry" : "entries" })
               ] }) }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.cardRecent, children: s.recent ? "Last: " + fmtDateShortGB(s.recent) : "No entries yet" })
+              /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.cardRecent, children: s.recent ? "Last: " + fmtDateShortGB(s.recent) : "No entries yet" }),
+              isOpen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 14, borderTop: "1px solid #f0ede6", paddingTop: 6 }, children: [
+                kpiEntries.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 13, color: "#aaa", fontStyle: "italic", margin: "8px 0 0" }, children: "No entries logged for this KPI yet." }),
+                kpiEntries.map((e) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.activityRow, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { width: 8, height: 8, borderRadius: "50%", background: k2.color, flexShrink: 0 } }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: S.activityTitle, children: e.title }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: S.activityMeta, children: [
+                      fmtDateGB(e.date),
+                      " · ",
+                      e.hours,
+                      "h"
+                    ] })
+                  ] })
+                ] }, e.id)),
+                s.count > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "button",
+                  {
+                    style: { ...S.secondaryBtn, marginTop: 12, fontSize: 12, padding: "7px 14px" },
+                    onClick: (ev) => {
+                      ev.stopPropagation();
+                      setFilterKpi(k2.id);
+                      setTab("log");
+                      window.scrollTo({ top: 0 });
+                    },
+                    children: "See all in Work Log →"
+                  }
+                )
+              ] })
             ] })
           ] }, k2.id);
         }) }),
