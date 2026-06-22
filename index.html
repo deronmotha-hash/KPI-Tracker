@@ -7135,11 +7135,21 @@ function KPITracker() {
   const [appraisalResponse, setAppraisalResponse] = reactExports.useState("");
   const [toast, setToast] = reactExports.useState(null);
   const toastTimer = reactExports.useRef(null);
+  const [showExportDialog, setShowExportDialog] = reactExports.useState(false);
+  const [exportRange, setExportRange] = reactExports.useState({ preset: "all", from: "", to: "" });
   const [isMobile, setIsMobile] = reactExports.useState(typeof window !== "undefined" && window.innerWidth < 640);
   reactExports.useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 640);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const exportRef = reactExports.useRef(null);
+  reactExports.useEffect(() => {
+    const onDoc = (ev) => {
+      if (exportRef.current && !exportRef.current.contains(ev.target)) setShowExportDialog(false);
+    };
+    document.addEventListener("click", onDoc);
+    return () => document.removeEventListener("click", onDoc);
   }, []);
   const dashGridRef = reactExports.useRef(null);
   reactExports.useEffect(() => {
@@ -7351,7 +7361,7 @@ function KPITracker() {
     });
     return m2;
   }, [entries, kpis]);
-  const totalHours = entries.reduce((s, e) => s + (Number(e.hours) || 0), 0);
+  entries.reduce((s, e) => s + (Number(e.hours) || 0), 0);
   const filteredEntries = filterKpi === "all" ? entries : entries.filter((e) => e.kpiId === filterKpi);
   const getKpi = (id2) => kpis.find((k2) => k2.id === id2);
   const exportCsv = () => {
@@ -7430,7 +7440,40 @@ function KPITracker() {
     }
     setSyncing(false);
   };
-  const exportReport = () => {
+  const resolveRange = (range) => {
+    const today = /* @__PURE__ */ new Date();
+    const iso = (d) => d.toISOString().split("T")[0];
+    if (range.preset === "all") return { from: null, to: null, label: "All time" };
+    if (range.preset === "month") {
+      const f2 = new Date(today.getFullYear(), today.getMonth(), 1);
+      return { from: iso(f2), to: iso(today), label: today.toLocaleDateString("en-GB", { month: "long", year: "numeric" }) };
+    }
+    if (range.preset === "quarter") {
+      const q2 = Math.floor(today.getMonth() / 3);
+      const f2 = new Date(today.getFullYear(), q2 * 3, 1);
+      return { from: iso(f2), to: iso(today), label: "Q" + (q2 + 1) + " " + today.getFullYear() };
+    }
+    if (range.preset === "year") {
+      const f2 = new Date(today.getFullYear(), 0, 1);
+      return { from: iso(f2), to: iso(today), label: String(today.getFullYear()) };
+    }
+    if (range.preset === "custom") {
+      return {
+        from: range.from || null,
+        to: range.to || null,
+        label: (range.from ? fmtDateGB(range.from) : "start") + " – " + (range.to ? fmtDateGB(range.to) : "today")
+      };
+    }
+    return { from: null, to: null, label: "All time" };
+  };
+  const exportReport = (range = { preset: "all" }) => {
+    const rng = resolveRange(range);
+    const inRange = (d) => {
+      const nd2 = normDate(d);
+      if (rng.from && nd2 < rng.from) return false;
+      if (rng.to && nd2 > rng.to) return false;
+      return true;
+    };
     const today = (/* @__PURE__ */ new Date()).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
     const name = getUserName() || "KPI Report";
     const role = getUserRole();
@@ -7438,27 +7481,40 @@ function KPITracker() {
     kpis.forEach((k2) => {
       entriesByKpi[k2.id] = [];
     });
-    entries.forEach((e) => {
+    const exportEntries = entries.filter((e) => inRange(e.date));
+    exportEntries.forEach((e) => {
       if (entriesByKpi[e.kpiId]) entriesByKpi[e.kpiId].push(e);
     });
     Object.values(entriesByKpi).forEach((arr) => arr.sort((a, b) => b.date.localeCompare(a.date)));
+    const exportEntryCount = exportEntries.length;
+    const exportTotalHours = exportEntries.reduce((s, e) => s + (Number(e.hours) || 0), 0);
+    const exportStats = {};
+    kpis.forEach((k2) => {
+      exportStats[k2.id] = { count: 0, hours: 0 };
+    });
+    exportEntries.forEach((e) => {
+      if (exportStats[e.kpiId]) {
+        exportStats[e.kpiId].count++;
+        exportStats[e.kpiId].hours += Number(e.hours) || 0;
+      }
+    });
     const fmtDate = (d) => fmtDateGB(d);
     const kpiSections = kpis.map((k2, i) => {
-      const s = stats[k2.id] || { count: 0, hours: 0 };
+      const s = exportStats[k2.id] || { count: 0, hours: 0 };
       const scopeItems = k2.scope ? k2.scope.split(";").map((s2) => s2.trim()).filter(Boolean) : [];
       const logRows = (entriesByKpi[k2.id] || []).map(
-        (e) => `<tr><td style="padding:8px 12px;border-bottom:1px solid #e8e6e0;font-family:'IBM Plex Mono',monospace;font-size:12px;white-space:nowrap;color:#666;">${fmtDate(e.date)}</td><td style="padding:8px 12px;border-bottom:1px solid #e8e6e0;"><strong style="font-size:13px;color:#2d3142;">${esc(e.title)}</strong>${e.description ? `<div style="font-size:12px;color:#666;margin-top:3px;">${esc(e.description)}</div>` : ""}${e.evidence ? `<div style="font-size:11px;color:#5b6abf;font-family:'IBM Plex Mono',monospace;margin-top:3px;overflow-wrap:anywhere;word-break:break-word;">↗ ${esc(e.evidence)}</div>` : ""}</td><td style="padding:8px 12px;border-bottom:1px solid #e8e6e0;font-family:'IBM Plex Mono',monospace;font-size:13px;text-align:right;color:#2d3142;">${e.hours}h</td></tr>`
+        (e) => `<tr><td style="padding:8px 12px;border-bottom:1px solid #e8e6e0;font-family:'IBM Plex Mono',monospace;font-size:12px;white-space:nowrap;color:#666;">${fmtDate(e.date)}</td><td style="padding:8px 12px;border-bottom:1px solid #e8e6e0;"><strong style="font-size:13px;color:#2d3142;">${esc(e.title)}</strong>${e.description ? `<div style="font-size:12px;color:#666;margin-top:3px;">${esc(e.description)}</div>` : ""}${e.evidence ? `<div style="font-size:11px;color:#5b6abf;font-family:'IBM Plex Mono',monospace;margin-top:3px;">↗ ${esc(e.evidence)}</div>` : ""}</td><td style="padding:8px 12px;border-bottom:1px solid #e8e6e0;font-family:'IBM Plex Mono',monospace;font-size:13px;text-align:right;color:#2d3142;">${e.hours}h</td></tr>`
       ).join("");
       return `<div style="page-break-inside:avoid;margin-bottom:36px;"><div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;border-bottom:3px solid ${k2.color};padding-bottom:10px;"><span style="font-size:22px;font-weight:800;color:${k2.color};font-family:'IBM Plex Mono',monospace;">${i + 1}</span><h2 style="margin:0;font-size:17px;font-weight:700;color:#2d3142;">${esc(k2.name)}</h2></div><p style="font-size:13px;color:#444;line-height:1.6;margin:0 0 14px;">${esc(k2.description || "")}</p>${scopeItems.length ? `<div style="background:#f8f6f1;border-radius:8px;padding:14px 16px;margin-bottom:12px;"><h4 style="margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#999;font-weight:700;">Scope</h4>${scopeItems.map((s2) => `<div style="font-size:12px;color:#444;line-height:1.5;padding:2px 0 2px 14px;position:relative;"><span style="position:absolute;left:0;color:${k2.color};">•</span>${esc(s2)}</div>`).join("")}</div>` : ""}${k2.metrics ? `<div style="background:#f8f6f1;border-radius:8px;padding:14px 16px;margin-bottom:12px;"><h4 style="margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#999;font-weight:700;">Metrics</h4><p style="font-size:12px;color:#444;margin:0;">${esc(k2.metrics)}</p></div>` : ""}${k2.reporting ? `<div style="background:#f8f6f1;border-radius:8px;padding:14px 16px;margin-bottom:12px;"><h4 style="margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#999;font-weight:700;">Reporting</h4><p style="font-size:12px;color:#444;margin:0;">${esc(k2.reporting)}</p></div>` : ""}<div style="display:flex;gap:24px;margin-bottom:14px;"><div><span style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:#2d3142;">${s.count}</span> <span style="font-size:12px;color:#999;">entries</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:#2d3142;">${s.hours.toFixed(1)}</span> <span style="font-size:12px;color:#999;">hours</span></div></div>${logRows ? `<table style="width:100%;border-collapse:collapse;font-family:Manrope,sans-serif;"><thead><tr style="background:#f0ede6;"><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#999;font-weight:700;">Date</th><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#999;font-weight:700;">Detail</th><th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#999;font-weight:700;">Hours</th></tr></thead><tbody>${logRows}</tbody></table>` : `<p style="font-size:13px;color:#aaa;font-style:italic;">No entries yet.</p>`}</div>`;
     }).join("");
     const backupJson = JSON.stringify({ format: "kpi-tracker-backup", version: 1, exported: (/* @__PURE__ */ new Date()).toISOString(), kpis, entries }).replace(/</g, "\\u003c");
-    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>KPI Report — ${today}</title><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"><style>*{box-sizing:border-box}body{font-family:Manrope,sans-serif;max-width:850px;margin:0 auto;padding:40px 32px;color:#2d3142;background:#fff;line-height:1.5}@media print{body{padding:20px}}</style></head><body><div style="border-bottom:3px solid #2d3142;padding-bottom:16px;margin-bottom:32px;"><h1 style="margin:0;font-size:28px;font-weight:800;">KPI Report</h1>${`<p style="margin:6px 0 0;font-size:14px;color:#888;font-family:'IBM Plex Mono',monospace;">${esc(name)}${role ? " · " + esc(role) : ""}</p>`}<p style="margin:4px 0 0;font-size:13px;color:#aaa;font-family:'IBM Plex Mono',monospace;">Generated ${today}</p></div><div style="margin-bottom:36px;"><h2 style="font-size:18px;font-weight:700;margin:0 0 14px;">Summary</h2><div style="display:flex;gap:32px;margin-bottom:16px;"><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${entries.length}</span><br><span style="font-size:12px;color:#999;">entries</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${totalHours.toFixed(1)}</span><br><span style="font-size:12px;color:#999;">hours</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${kpis.length}</span><br><span style="font-size:12px;color:#999;">KPIs</span></div></div></div><div style="border-top:2px solid #e8e6e0;padding-top:28px;">${kpiSections}</div><div style="margin-top:40px;padding-top:16px;border-top:1px solid #e8e6e0;"><p style="font-size:11px;color:#aaa;font-family:'IBM Plex Mono',monospace;">End of report · ${entries.length} entries · ${totalHours.toFixed(1)} hours</p></div><script type="application/json" id="kpi-backup-data">${backupJson}<\/script></body></html>`;
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>KPI Report — ${today}</title><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"><style>*{box-sizing:border-box}body{font-family:Manrope,sans-serif;max-width:850px;margin:0 auto;padding:40px 32px;color:#2d3142;background:#fff;line-height:1.5}@media print{body{padding:20px}}</style></head><body><div style="border-bottom:3px solid #2d3142;padding-bottom:16px;margin-bottom:32px;"><h1 style="margin:0;font-size:28px;font-weight:800;">KPI Report</h1>${`<p style="margin:6px 0 0;font-size:14px;color:#888;font-family:'IBM Plex Mono',monospace;">${esc(name)}${role ? " · " + esc(role) : ""}</p>`}<p style="margin:4px 0 0;font-size:13px;color:#aaa;font-family:'IBM Plex Mono',monospace;">Generated ${today} · Period: ${rng.label}</p></div><div style="margin-bottom:36px;"><h2 style="font-size:18px;font-weight:700;margin:0 0 14px;">Summary</h2><div style="display:flex;gap:32px;margin-bottom:16px;"><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${exportEntryCount}</span><br><span style="font-size:12px;color:#999;">entries</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${exportTotalHours.toFixed(1)}</span><br><span style="font-size:12px;color:#999;">hours</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${kpis.length}</span><br><span style="font-size:12px;color:#999;">KPIs</span></div></div></div><div style="border-top:2px solid #e8e6e0;padding-top:28px;">${kpiSections}</div><div style="margin-top:40px;padding-top:16px;border-top:1px solid #e8e6e0;"><p style="font-size:11px;color:#aaa;font-family:'IBM Plex Mono',monospace;">End of report · ${exportEntryCount} entries · ${exportTotalHours.toFixed(1)} hours · ${rng.label}</p></div><script type="application/json" id="kpi-backup-data">${backupJson}<\/script></body></html>`;
     try {
       const blob = new Blob([html], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `KPI_Report_${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}.html`;
+      a.download = `KPI_Report_${range.preset === "all" ? "all" : rng.label.replace(/[^a-zA-Z0-9]+/g, "_")}_${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}.html`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -7495,7 +7551,32 @@ function KPITracker() {
         syncing && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#c9962b", animation: "pulse 0.6s infinite" } }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: 8, height: 8, borderRadius: "50%", background: connected ? "#4a7c59" : "#b44" } }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: refreshData, style: S.gearBtn, title: "Refresh from sheet", children: /* @__PURE__ */ jsxRuntimeExports.jsx(IconRefresh, {}) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: exportReport, style: S.exportBtn, children: "Export ↓" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { position: "relative" }, ref: exportRef, onClick: (e) => e.stopPropagation(), children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => {
+            setShowExportDialog((v2) => !v2);
+          }, style: S.exportBtn, children: "Export ↓" }),
+          showExportDialog && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.exportDropdown, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 11, fontWeight: 700, color: "#999", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 8px" }, children: "Export period" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 2 }, children: [["all", "All entries"], ["month", "This month"], ["quarter", "This quarter"], ["year", "This year"], ["custom", "Custom range…"]].map(([p2, label]) => /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "flex", alignItems: "center", gap: 9, fontSize: 13, color: "#2d3142", cursor: "pointer", padding: "7px 10px", background: exportRange.preset === p2 ? "#f0ede6" : "transparent", borderRadius: 6 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "radio", name: "exportRange", checked: exportRange.preset === p2, onChange: () => setExportRange({ ...exportRange, preset: p2 }), style: { width: 15, height: 15, accentColor: "#2d3142" } }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontWeight: 600 }, children: label })
+            ] }, p2)) }),
+            exportRange.preset === "custom" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fieldWrap, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "From" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "date", value: exportRange.from, onChange: (e) => setExportRange({ ...exportRange, from: e.target.value }), style: S.input })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fieldWrap, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "To" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "date", value: exportRange.to, onChange: (e) => setExportRange({ ...exportRange, to: e.target.value }), style: S.input })
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.primaryBtn, width: "100%", marginTop: 12 }, onClick: () => {
+              exportReport(exportRange);
+              setShowExportDialog(false);
+            }, children: "Download report ↓" })
+          ] })
+        ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => {
           setShowSettings(!showSettings);
           setApiUrlInput(getApiUrl());
@@ -7711,7 +7792,7 @@ function KPITracker() {
                 ] })
               ] }),
               e.description && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 13, color: "#666", lineHeight: 1.5, margin: "8px 0 0" }, children: e.description }),
-              e.evidence && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { fontSize: 12, color: "#5b6abf", fontFamily: "'IBM Plex Mono', monospace", margin: "6px 0 0", overflowWrap: "anywhere", wordBreak: "break-word" }, children: [
+              e.evidence && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { fontSize: 12, color: "#5b6abf", fontFamily: "'IBM Plex Mono', monospace", margin: "6px 0 0" }, children: [
                 "↗ ",
                 e.evidence
               ] }),
@@ -7946,6 +8027,7 @@ const S = {
   navItems: { display: "flex", gap: 4, marginLeft: 16, flex: 1 },
   navBtn: { background: "transparent", border: "none", color: "rgba(255,255,255,0.55)", fontFamily: "Manrope", fontSize: 13, fontWeight: 600, padding: "8px 12px", borderRadius: 6, cursor: "pointer" },
   navBtnActive: { background: "rgba(255,255,255,0.12)", color: "#fff" },
+  exportDropdown: { position: "absolute", top: "calc(100% + 8px)", right: 0, width: 260, maxWidth: "calc(100vw - 32px)", background: "#fff", borderRadius: 10, boxShadow: "0 8px 30px rgba(0,0,0,0.18)", padding: 14, zIndex: 300, textAlign: "left", boxSizing: "border-box" },
   exportBtn: { background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", fontFamily: "Manrope", fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 5, cursor: "pointer" },
   gearBtn: { background: "transparent", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: "4px 6px", display: "flex", alignItems: "center", justifyContent: "center" },
   settingsPanel: { background: "#fff", borderBottom: "1px solid #e8e6e0", padding: "20px 24px", animation: "fadeIn 0.15s" },
