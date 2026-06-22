@@ -202,7 +202,7 @@ function setupSheet() {
   }
   if (hasData('Employees') || hasData('Reviews')) {
     try {
-      SpreadsheetApp.getUi().alert('Setup blocked: this sheet already contains data.\n\nRunning setup would erase it. To update the code instead, use Deploy \u2192 Manage deployments \u2192 edit \u2192 New version. No setup needed.');
+      SpreadsheetApp.getUi().alert('Setup blocked: this sheet already contains data.\n\nRunning setup would erase it. To update the code instead, use Deploy \u2192 Manage deployments \u2192 edit \u2192 New version \u2192 Deploy. Your data is preserved and the period structure is added automatically.');
     } catch (e) {
       throw new Error('Setup blocked: sheet already contains data. Use Manage deployments \u2192 New version to update code without wiping data.');
     }

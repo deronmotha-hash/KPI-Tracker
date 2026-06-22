@@ -245,35 +245,48 @@ function seedDefaultPeriod() {
 }
 
 function migrateLegacyData() {
-  // One-time self-heal: if a Periods tab is empty, seed one; if KPIs/Entries
-  // lack a periodId column or have blank periodIds, assign them to the active period.
+  // Self-heal legacy sheets: ensure KPIs/Entries have a periodId column and that
+  // blank periodIds are filled. Only create a default period when there are NO
+  // periods yet AND there is existing data that needs a home — never otherwise,
+  // so we can't accidentally add a spurious extra period.
   const pSheet = getPeriodsSheet();
-  if (pSheet.getLastRow() < 2) {
-    seedDefaultPeriod();
+  const periodCount = pSheet.getLastRow() - 1; // minus header
+
+  function tabHasRows(name) {
+    const sh = ss.getSheetByName(name);
+    return sh && sh.getLastRow() > 1;
   }
-  // find active (or first) period id
+
+  if (periodCount < 1) {
+    // No periods exist. Only seed one if there's legacy data to adopt.
+    if (tabHasRows('KPIs') || tabHasRows('Entries')) {
+      seedDefaultPeriod();
+    } else {
+      return; // brand new empty sheet: let setup/user create the first period
+    }
+  }
+
+  // Resolve the period to assign orphaned rows to (active, else most recent).
   const pData = pSheet.getDataRange().getValues();
-  let activeId = null, firstId = null;
+  let activeId = null, lastId = null;
   for (let i = 1; i < pData.length; i++) {
-    if (!firstId) firstId = String(pData[i][0]);
+    if (pData[i][0]) lastId = String(pData[i][0]);
     if (String(pData[i][4]).toLowerCase() === 'yes') activeId = String(pData[i][0]);
   }
-  const targetId = activeId || firstId;
+  const targetId = activeId || lastId;
   if (!targetId) return;
 
   ['KPIs', 'Entries'].forEach(function(tabName) {
     const sh = ss.getSheetByName(tabName);
     if (!sh || sh.getLastRow() < 1) return;
     const data = sh.getDataRange().getValues();
-    let headers = data[0];
+    const headers = data[0];
     let pidCol = headers.indexOf('periodId');
     if (pidCol === -1) {
-      // add the column header at the end
       pidCol = headers.length;
       sh.getRange(1, pidCol + 1).setValue('periodId');
     }
     if (sh.getLastRow() < 2) return;
-    // fill blanks
     const rng = sh.getRange(2, pidCol + 1, sh.getLastRow() - 1, 1);
     const vals = rng.getValues();
     let changed = false;
@@ -442,7 +455,7 @@ function setupSheet() {
   }
   if (hasData('KPIs') || hasData('Entries')) {
     try {
-      SpreadsheetApp.getUi().alert('Setup blocked: this sheet already contains data.\n\nRunning setup would erase it. To update the code instead, use Deploy \u2192 Manage deployments \u2192 edit \u2192 New version. No setup needed.');
+      SpreadsheetApp.getUi().alert('Setup blocked: this sheet already contains data.\n\nRunning setup would erase it. To update the code instead, use Deploy \u2192 Manage deployments \u2192 edit \u2192 New version \u2192 Deploy. Your data is preserved and the period structure is added automatically.');
     } catch (e) {
       throw new Error('Setup blocked: sheet already contains data. Use Manage deployments \u2192 New version to update code without wiping data.');
     }
