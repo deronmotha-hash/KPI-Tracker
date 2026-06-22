@@ -2,7 +2,7 @@
 
 A lightweight KPI tracking app that runs in your browser and stores data in your own Google Sheet. Define your KPIs, log work against them, and export reports.
 
-**Live app:** [https://deronmotha-hash.github.io/KPI-Tracker/](https://deronmotha-hash.github.io/KPI-Tracker/)
+**Live app:** [https://yourusername.github.io/kpi-tracker/](https://yourusername.github.io/kpi-tracker/)
 
 ## Features
 
@@ -83,3 +83,27 @@ Your URL stays the same.
 | Authorisation loops or fails | Try in an incognito window logged into just one Google account. |
 | "Could not reach API" in the app | Make sure you copied the **deployment** URL (ends in `/exec`), not the script editor URL. |
 | Data not showing after connect | Check your Google Sheet — the KPIs and Entries tabs should have headers. If not, re-run `setupSheet`. |
+
+
+## Review periods
+
+The app organises everything by review period (e.g. 1 April–31 March). In **Settings → Review Periods** you can:
+
+- Create a new period when a new appraisal year starts (it begins empty and becomes the active period for logging)
+- Import specific KPIs from a previous period into the new one (you choose which; name clashes are flagged but allowed)
+- Switch which period you're viewing — the dashboard, work log, framework, and export all re-scope to that period
+- Mark any period as the current (active) one, or delete a period and its data
+
+New entries are automatically filed into whichever period's date range covers the entry date. Past periods stay editable but are clearly marked.
+
+KPIs belong to a period. In the Framework tab you can add, edit, delete, and reassign a KPI to a different period.
+
+## Updating the backend later (without losing data)
+
+When a new version of the backend code is released:
+
+1. Open the app and **Export** a backup first (the HTML file doubles as a full backup).
+2. Paste the new code into Apps Script and save.
+3. **Deploy → Manage deployments → ✏ edit → New version → Deploy.** This keeps the same URL and never touches your data.
+
+**Never** re-run `setupSheet` on a sheet that already has data — it's there only for first-time setup, and it will now refuse to run if data exists. The first time the new code reads your sheet, it automatically adds the new period structure and files your existing entries into a default period.

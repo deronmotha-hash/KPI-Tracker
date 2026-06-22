@@ -7021,7 +7021,6 @@ var m = reactDomExports;
   client.createRoot = m.createRoot;
   client.hydrateRoot = m.hydrateRoot;
 }
-const COLORS = ["#b55a30", "#3d7a8a", "#5b6abf", "#4a7c59", "#7a4f8a", "#c9962b", "#b5445a", "#2d6b4f", "#8a6b3d"];
 function esc(s) {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -7121,10 +7120,8 @@ function KPITracker() {
   const [expandedKpi, setExpandedKpi] = reactExports.useState(null);
   const [expandedDashKpi, setExpandedDashKpi] = reactExports.useState(null);
   const [editingFramework, setEditingFramework] = reactExports.useState(null);
-  const [showAddKpi, setShowAddKpi] = reactExports.useState(false);
   const [filterKpi, setFilterKpi] = reactExports.useState("all");
   const [confirmDelete, setConfirmDelete] = reactExports.useState(null);
-  const [confirmDeleteKpi, setConfirmDeleteKpi] = reactExports.useState(null);
   const [showSettings, setShowSettings] = reactExports.useState(false);
   const [apiUrlInput, setApiUrlInput] = reactExports.useState(getApiUrl());
   const [nameInput, setNameInput] = reactExports.useState(getUserName());
@@ -7137,6 +7134,22 @@ function KPITracker() {
   const toastTimer = reactExports.useRef(null);
   const [showExportDialog, setShowExportDialog] = reactExports.useState(false);
   const [exportRange, setExportRange] = reactExports.useState({ preset: "all", from: "", to: "" });
+  const [periods, setPeriods] = reactExports.useState([]);
+  const [activePeriodId, setActivePeriodId] = reactExports.useState("");
+  const [viewPeriodId, setViewPeriodId] = reactExports.useState("");
+  const [showPeriodForm, setShowPeriodForm] = reactExports.useState(false);
+  const blankPeriod = { label: "", startDate: "", endDate: "" };
+  const [periodForm, setPeriodForm] = reactExports.useState(blankPeriod);
+  const [editingPeriod, setEditingPeriod] = reactExports.useState(null);
+  const [confirmDeletePeriod, setConfirmDeletePeriod] = reactExports.useState(null);
+  const [confirmDeleteKpi, setConfirmDeleteKpi] = reactExports.useState(null);
+  const [showAddKpi, setShowAddKpi] = reactExports.useState(false);
+  const blankKpi = { name: "", color: "#5b6abf", description: "", scope: "", metrics: "", reporting: "" };
+  const [newKpiForm, setNewKpiForm] = reactExports.useState(blankKpi);
+  const [importSourcePeriod, setImportSourcePeriod] = reactExports.useState("");
+  const [importKpiPicks, setImportKpiPicks] = reactExports.useState([]);
+  const [importTargetPeriod, setImportTargetPeriod] = reactExports.useState("");
+  const [showImportKpis, setShowImportKpis] = reactExports.useState(false);
   const [isMobile, setIsMobile] = reactExports.useState(typeof window !== "undefined" && window.innerWidth < 640);
   reactExports.useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 640);
@@ -7161,11 +7174,16 @@ function KPITracker() {
     document.addEventListener("click", onDocClick);
     return () => document.removeEventListener("click", onDocClick);
   }, []);
-  const blankEntry = { date: (/* @__PURE__ */ new Date()).toISOString().split("T")[0], title: "", description: "", kpiId: kpis[0]?.id || "", hours: 1, evidence: "" };
-  const blankKpi = { name: "", color: COLORS[0], description: "", scope: "", metrics: "", reporting: "" };
+  const blankEntry = {
+    date: (/* @__PURE__ */ new Date()).toISOString().split("T")[0],
+    title: "",
+    description: "",
+    kpiId: kpis[0]?.id || "",
+    hours: 1,
+    evidence: ""
+  };
   const [form, setForm] = reactExports.useState(blankEntry);
   const [frameworkForm, setFrameworkForm] = reactExports.useState(null);
-  const [newKpiForm, setNewKpiForm] = reactExports.useState(blankKpi);
   const flash = reactExports.useCallback((msg, ok2) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast({ msg, ok: ok2 });
@@ -7176,7 +7194,7 @@ function KPITracker() {
       try {
         const data = await apiGet();
         if (data && !data.error) {
-          if (data.kpis) setKpis(data.kpis);
+          if (data.kpis?.length) setKpis(data.kpis);
           if (data.entries) setEntries(data.entries.map((e) => ({ ...e, date: normDate(e.date) })));
           if (data.appraisals) setAppraisals(data.appraisals.map((a) => ({ ...a, assigned: normDate(a.assigned), due: normDate(a.due), respondedDate: normDate(a.respondedDate) })));
           setConnected(true);
@@ -7191,7 +7209,7 @@ function KPITracker() {
   }, []);
   const addEntry = async () => {
     if (!form.title || !form.kpiId) return;
-    const entry = { ...form, id: Date.now().toString() };
+    const entry = { ...form, id: Date.now().toString(), periodId: periodForDate(form.date) };
     setEntries((prev) => [entry, ...prev]);
     setForm(blankEntry);
     setShowForm(false);
@@ -7200,20 +7218,22 @@ function KPITracker() {
       const r2 = await apiPost("addEntry", { data: entry });
       if (r2.error) flash(r2.error, false);
     } catch (e) {
-      flash("Save failed", false);
+      flash("Save failed — check connection", false);
     }
     setSyncing(false);
   };
   const updateEntry = async () => {
     if (!form.title || !form.kpiId) return;
     const id2 = editingEntry;
-    setEntries((prev) => prev.map((e) => e.id === id2 ? { ...form, id: id2 } : e));
+    const existing = entries.find((e) => e.id === id2);
+    const periodId = existing?.periodId || periodForDate(form.date);
+    setEntries((prev) => prev.map((e) => e.id === id2 ? { ...form, id: id2, periodId } : e));
     setEditingEntry(null);
     setForm(blankEntry);
     setShowForm(false);
     setSyncing(true);
     try {
-      const r2 = await apiPost("updateEntry", { data: { ...form, id: id2 } });
+      const r2 = await apiPost("updateEntry", { data: { ...form, id: id2, periodId } });
       if (r2.error) flash(r2.error, false);
     } catch (e) {
       flash("Update failed", false);
@@ -7232,21 +7252,6 @@ function KPITracker() {
     }
     setSyncing(false);
   };
-  const addNewKpi = async () => {
-    if (!newKpiForm.name) return;
-    const kpi = { ...newKpiForm, id: "kpi-" + Date.now().toString() };
-    setKpis((prev) => [...prev, kpi]);
-    setNewKpiForm(blankKpi);
-    setShowAddKpi(false);
-    setSyncing(true);
-    try {
-      const r2 = await apiPost("addKpi", { data: kpi });
-      if (r2.error) flash(r2.error, false);
-    } catch (e) {
-      flash("KPI save failed", false);
-    }
-    setSyncing(false);
-  };
   const saveFramework = async () => {
     if (!frameworkForm) return;
     const updated = { ...frameworkForm };
@@ -7262,20 +7267,6 @@ function KPITracker() {
     }
     setSyncing(false);
   };
-  const deleteKpi = async (id2) => {
-    setKpis((prev) => prev.filter((k2) => k2.id !== id2));
-    setEntries((prev) => prev.filter((e) => e.kpiId !== id2));
-    setConfirmDeleteKpi(null);
-    setExpandedKpi(null);
-    setSyncing(true);
-    try {
-      const r2 = await apiPost("deleteKpi", { id: id2 });
-      if (r2.error) flash(r2.error, false);
-    } catch (e) {
-      flash("Delete failed", false);
-    }
-    setSyncing(false);
-  };
   const resetData = async () => {
     setKpis([]);
     setEntries([]);
@@ -7286,6 +7277,133 @@ function KPITracker() {
       else flash("Reset complete", true);
     } catch (e) {
       flash("Reset failed", false);
+    }
+    setSyncing(false);
+  };
+  const createPeriod = async () => {
+    if (!periodForm.label) return;
+    const id2 = "period-" + Date.now().toString();
+    const newPeriod = { id: id2, label: periodForm.label, startDate: periodForm.startDate, endDate: periodForm.endDate, active: true };
+    setShowPeriodForm(false);
+    setSyncing(true);
+    try {
+      const r2 = await apiPost("addPeriod", { data: newPeriod });
+      if (r2.error) {
+        flash(r2.error, false);
+        setSyncing(false);
+        return;
+      }
+      setPeriods((prev) => prev.map((p2) => ({ ...p2, active: "" })).concat({ ...newPeriod, active: "yes" }));
+      setActivePeriodId(id2);
+      setViewPeriodId(id2);
+      flash('New period created. Use "Import KPIs" to bring KPIs across, or add new ones in Framework.', true);
+    } catch (e) {
+      flash("Could not create period", false);
+    }
+    setPeriodForm(blankPeriod);
+    setSyncing(false);
+  };
+  const runKpiImport = async () => {
+    if (!importSourcePeriod || !importTargetPeriod || importKpiPicks.length === 0) return;
+    const targetKpis = kpis.filter((k2) => (k2.periodId || "") === importTargetPeriod);
+    const targetNames = targetKpis.map((k2) => (k2.name || "").toLowerCase());
+    const chosen = kpis.filter((k2) => importKpiPicks.includes(k2.id));
+    setSyncing(true);
+    const copies = [];
+    let clashes = 0;
+    for (let i = 0; i < chosen.length; i++) {
+      const k2 = chosen[i];
+      if (targetNames.includes((k2.name || "").toLowerCase())) clashes++;
+      const copy = {
+        id: "kpi-" + Date.now() + "-" + i + "-" + Math.random().toString(36).slice(2, 6),
+        name: k2.name,
+        color: k2.color,
+        description: k2.description || "",
+        scope: k2.scope || "",
+        metrics: k2.metrics || "",
+        reporting: k2.reporting || "",
+        periodId: importTargetPeriod
+      };
+      try {
+        const rr = await apiPost("addKpi", { data: copy });
+        if (rr.error) flash(rr.error, false);
+        else copies.push(copy);
+      } catch (e) {
+        flash("Import failed for " + k2.name, false);
+      }
+    }
+    setKpis((prev) => [...prev, ...copies]);
+    setShowImportKpis(false);
+    setImportKpiPicks([]);
+    setImportSourcePeriod("");
+    flash("Imported " + copies.length + " KPI" + (copies.length === 1 ? "" : "s") + (clashes ? " (" + clashes + " with names already in the target period)" : ""), true);
+    setSyncing(false);
+  };
+  const addNewKpi = async () => {
+    if (!newKpiForm.name) return;
+    const kpi = { ...newKpiForm, id: "kpi-" + Date.now().toString(), periodId: viewPeriodId || activePeriodId || "" };
+    setKpis((prev) => [...prev, kpi]);
+    setNewKpiForm(blankKpi);
+    setShowAddKpi(false);
+    setSyncing(true);
+    try {
+      const r2 = await apiPost("addKpi", { data: kpi });
+      if (r2.error) flash(r2.error, false);
+      else flash("KPI added", true);
+    } catch (e) {
+      flash("Save failed", false);
+    }
+    setSyncing(false);
+  };
+  const deleteKpiById = async (id2) => {
+    setKpis((prev) => prev.filter((k2) => k2.id !== id2));
+    setConfirmDeleteKpi(null);
+    setEditingFramework(null);
+    setFrameworkForm(null);
+    setSyncing(true);
+    try {
+      const r2 = await apiPost("deleteKpi", { id: id2 });
+      if (r2.error) flash(r2.error, false);
+      else flash("KPI deleted", true);
+    } catch (e) {
+      flash("Delete failed", false);
+    }
+    setSyncing(false);
+  };
+  const switchPeriod = (id2) => {
+    setViewPeriodId(id2);
+    setExpandedDashKpi(null);
+    setExpandedKpi(null);
+  };
+  const makeActive = async (id2) => {
+    setPeriods((prev) => prev.map((p2) => ({ ...p2, active: p2.id === id2 ? "yes" : "" })));
+    setActivePeriodId(id2);
+    setSyncing(true);
+    try {
+      const r2 = await apiPost("setActivePeriod", { id: id2 });
+      if (r2.error) flash(r2.error, false);
+      else flash("Active period updated", true);
+    } catch (e) {
+      flash("Could not set active period", false);
+    }
+    setSyncing(false);
+  };
+  const deletePeriod = async (id2) => {
+    setPeriods((prev) => prev.filter((p2) => p2.id !== id2));
+    setKpis((prev) => prev.filter((k2) => (k2.periodId || "") !== id2));
+    setEntries((prev) => prev.filter((e) => (e.periodId || "") !== id2));
+    setConfirmDeletePeriod(null);
+    if (viewPeriodId === id2) {
+      const fallback = periods.find((p2) => p2.id !== id2);
+      setViewPeriodId(fallback ? fallback.id : "");
+    }
+    setSyncing(true);
+    try {
+      const r2 = await apiPost("deletePeriod", { id: id2 });
+      if (r2.error) flash(r2.error, false);
+      else flash("Period deleted", true);
+    } catch (e) {
+      flash("Could not delete period", false);
     }
     setSyncing(false);
   };
@@ -7304,6 +7422,16 @@ function KPITracker() {
     }
     setSyncing(false);
   };
+  const capturePeriods = (data) => {
+    if (!data.periods) return;
+    const ps = data.periods.map((p2) => ({ ...p2, startDate: normDate(p2.startDate), endDate: normDate(p2.endDate) }));
+    setPeriods(ps);
+    const act = ps.find((p2) => String(p2.active).toLowerCase() === "yes") || ps[ps.length - 1];
+    if (act) {
+      setActivePeriodId(act.id);
+      setViewPeriodId((prev) => prev || act.id);
+    }
+  };
   const saveSettings = async () => {
     setApiUrl(apiUrlInput);
     setUserName(nameInput);
@@ -7313,9 +7441,10 @@ function KPITracker() {
     try {
       const data = await apiGet();
       if (data && !data.error) {
-        if (data.kpis) setKpis(data.kpis);
+        if (data.kpis?.length) setKpis(data.kpis);
         if (data.entries) setEntries(data.entries.map((e) => ({ ...e, date: normDate(e.date) })));
         if (data.appraisals) setAppraisals(data.appraisals.map((a) => ({ ...a, assigned: normDate(a.assigned), due: normDate(a.due), respondedDate: normDate(a.respondedDate) })));
+        capturePeriods(data);
         setConnected(true);
         flash("Connected", true);
       } else {
@@ -7333,9 +7462,10 @@ function KPITracker() {
     try {
       const data = await apiGet();
       if (data && !data.error) {
-        if (data.kpis) setKpis(data.kpis);
+        if (data.kpis?.length) setKpis(data.kpis);
         if (data.entries) setEntries(data.entries.map((e) => ({ ...e, date: normDate(e.date) })));
         if (data.appraisals) setAppraisals(data.appraisals.map((a) => ({ ...a, assigned: normDate(a.assigned), due: normDate(a.due), respondedDate: normDate(a.respondedDate) })));
+        capturePeriods(data);
         setConnected(true);
         flash("Refreshed", true);
       } else {
@@ -7347,12 +7477,28 @@ function KPITracker() {
     }
     setSyncing(false);
   };
+  const currentPeriod = periods.find((p2) => p2.id === viewPeriodId) || null;
+  const isPastPeriod = currentPeriod && viewPeriodId !== activePeriodId;
+  const knownPeriodIds = periods.map((p2) => p2.id);
+  const belongsToView = (row) => {
+    const pid = row.periodId || "";
+    if (!viewPeriodId) return true;
+    if (!pid || !knownPeriodIds.includes(pid)) return viewPeriodId === activePeriodId;
+    return pid === viewPeriodId;
+  };
+  const scopedKpis = periods.length ? kpis.filter(belongsToView) : kpis;
+  const scopedEntries = periods.length ? entries.filter(belongsToView) : entries;
+  const periodForDate = (dateStr) => {
+    const d = normDate(dateStr);
+    const match = periods.find((p2) => p2.startDate && p2.endDate && d >= normDate(p2.startDate) && d <= normDate(p2.endDate));
+    return match ? match.id : activePeriodId || "";
+  };
   const stats = reactExports.useMemo(() => {
     const m2 = {};
-    kpis.forEach((k2) => {
+    scopedKpis.forEach((k2) => {
       m2[k2.id] = { count: 0, hours: 0, recent: null };
     });
-    entries.forEach((e) => {
+    scopedEntries.forEach((e) => {
       if (m2[e.kpiId]) {
         m2[e.kpiId].count++;
         m2[e.kpiId].hours += Number(e.hours) || 0;
@@ -7360,35 +7506,10 @@ function KPITracker() {
       }
     });
     return m2;
-  }, [entries, kpis]);
-  entries.reduce((s, e) => s + (Number(e.hours) || 0), 0);
-  const filteredEntries = filterKpi === "all" ? entries : entries.filter((e) => e.kpiId === filterKpi);
+  }, [scopedEntries, scopedKpis]);
+  scopedEntries.reduce((s, e) => s + (Number(e.hours) || 0), 0);
+  const filteredEntries = filterKpi === "all" ? scopedEntries : scopedEntries.filter((e) => e.kpiId === filterKpi);
   const getKpi = (id2) => kpis.find((k2) => k2.id === id2);
-  const exportCsv = () => {
-    const csvEscape = (v2) => {
-      const s = String(v2 ?? "");
-      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-    };
-    const rows = [["id", "date", "title", "description", "kpi", "hours", "evidence"]];
-    entries.forEach((e) => {
-      const k2 = getKpi(e.kpiId);
-      rows.push([e.id, normDate(e.date), e.title, e.description || "", k2?.name || e.kpiId, e.hours, e.evidence || ""]);
-    });
-    const csv = rows.map((r2) => r2.map(csvEscape).join(",")).join("\n");
-    try {
-      const blob = new Blob([csv], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `KPI_Entries_${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      flash("CSV export failed", false);
-    }
-  };
   const importFileRef = reactExports.useRef(null);
   const importBackup = async (file) => {
     if (!file) return;
@@ -7419,7 +7540,7 @@ function KPITracker() {
       try {
         const r2 = await apiPost("addKpi", { data: k2 });
         if (r2.error) failed++;
-      } catch (e) {
+      } catch (err) {
         failed++;
       }
     }
@@ -7475,13 +7596,11 @@ function KPITracker() {
       return true;
     };
     const today = (/* @__PURE__ */ new Date()).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
-    const name = getUserName() || "KPI Report";
-    const role = getUserRole();
     const entriesByKpi = {};
     kpis.forEach((k2) => {
       entriesByKpi[k2.id] = [];
     });
-    const exportEntries = entries.filter((e) => inRange(e.date));
+    const exportEntries = scopedEntries.filter((e) => inRange(e.date));
     exportEntries.forEach((e) => {
       if (entriesByKpi[e.kpiId]) entriesByKpi[e.kpiId].push(e);
     });
@@ -7499,16 +7618,60 @@ function KPITracker() {
       }
     });
     const fmtDate = (d) => fmtDateGB(d);
-    const kpiSections = kpis.map((k2, i) => {
+    const kpiSections = scopedKpis.map((k2, i) => {
       const s = exportStats[k2.id] || { count: 0, hours: 0 };
-      const scopeItems = k2.scope ? k2.scope.split(";").map((s2) => s2.trim()).filter(Boolean) : [];
-      const logRows = (entriesByKpi[k2.id] || []).map(
-        (e) => `<tr><td style="padding:8px 12px;border-bottom:1px solid #e8e6e0;font-family:'IBM Plex Mono',monospace;font-size:12px;white-space:nowrap;color:#666;">${fmtDate(e.date)}</td><td style="padding:8px 12px;border-bottom:1px solid #e8e6e0;"><strong style="font-size:13px;color:#2d3142;">${esc(e.title)}</strong>${e.description ? `<div style="font-size:12px;color:#666;margin-top:3px;">${esc(e.description)}</div>` : ""}${e.evidence ? `<div style="font-size:11px;color:#5b6abf;font-family:'IBM Plex Mono',monospace;margin-top:3px;">↗ ${esc(e.evidence)}</div>` : ""}</td><td style="padding:8px 12px;border-bottom:1px solid #e8e6e0;font-family:'IBM Plex Mono',monospace;font-size:13px;text-align:right;color:#2d3142;">${e.hours}h</td></tr>`
-      ).join("");
-      return `<div style="page-break-inside:avoid;margin-bottom:36px;"><div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;border-bottom:3px solid ${k2.color};padding-bottom:10px;"><span style="font-size:22px;font-weight:800;color:${k2.color};font-family:'IBM Plex Mono',monospace;">${i + 1}</span><h2 style="margin:0;font-size:17px;font-weight:700;color:#2d3142;">${esc(k2.name)}</h2></div><p style="font-size:13px;color:#444;line-height:1.6;margin:0 0 14px;">${esc(k2.description || "")}</p>${scopeItems.length ? `<div style="background:#f8f6f1;border-radius:8px;padding:14px 16px;margin-bottom:12px;"><h4 style="margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#999;font-weight:700;">Scope</h4>${scopeItems.map((s2) => `<div style="font-size:12px;color:#444;line-height:1.5;padding:2px 0 2px 14px;position:relative;"><span style="position:absolute;left:0;color:${k2.color};">•</span>${esc(s2)}</div>`).join("")}</div>` : ""}${k2.metrics ? `<div style="background:#f8f6f1;border-radius:8px;padding:14px 16px;margin-bottom:12px;"><h4 style="margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#999;font-weight:700;">Metrics</h4><p style="font-size:12px;color:#444;margin:0;">${esc(k2.metrics)}</p></div>` : ""}${k2.reporting ? `<div style="background:#f8f6f1;border-radius:8px;padding:14px 16px;margin-bottom:12px;"><h4 style="margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#999;font-weight:700;">Reporting</h4><p style="font-size:12px;color:#444;margin:0;">${esc(k2.reporting)}</p></div>` : ""}<div style="display:flex;gap:24px;margin-bottom:14px;"><div><span style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:#2d3142;">${s.count}</span> <span style="font-size:12px;color:#999;">entries</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:#2d3142;">${s.hours.toFixed(1)}</span> <span style="font-size:12px;color:#999;">hours</span></div></div>${logRows ? `<table style="width:100%;border-collapse:collapse;font-family:Manrope,sans-serif;"><thead><tr style="background:#f0ede6;"><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#999;font-weight:700;">Date</th><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#999;font-weight:700;">Detail</th><th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#999;font-weight:700;">Hours</th></tr></thead><tbody>${logRows}</tbody></table>` : `<p style="font-size:13px;color:#aaa;font-style:italic;">No entries yet.</p>`}</div>`;
+      const scopeItems = k2.scope.split(";").map((s2) => s2.trim()).filter(Boolean);
+      const logRows = (entriesByKpi[k2.id] || []).map((e) => `
+        <tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #e8e6e0;font-family:'IBM Plex Mono',monospace;font-size:12px;white-space:nowrap;color:#666;">${fmtDate(e.date)}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #e8e6e0;">
+            <strong style="font-size:13px;color:#2d3142;">${esc(e.title)}</strong>
+            ${e.description ? `<div style="font-size:12px;color:#666;margin-top:3px;line-height:1.5;">${esc(e.description)}</div>` : ""}
+            ${e.evidence ? `<div style="font-size:11px;color:#5b6abf;font-family:'IBM Plex Mono',monospace;margin-top:3px;">↗ ${esc(e.evidence)}</div>` : ""}
+          </td>
+          <td style="padding:8px 12px;border-bottom:1px solid #e8e6e0;font-family:'IBM Plex Mono',monospace;font-size:13px;text-align:right;white-space:nowrap;color:#2d3142;">${e.hours}h</td>
+        </tr>`).join("");
+      return `
+        <div style="page-break-inside:avoid;margin-bottom:36px;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;border-bottom:3px solid ${k2.color};padding-bottom:10px;">
+            <span style="font-size:22px;font-weight:800;color:${k2.color};font-family:'IBM Plex Mono',monospace;">${i + 1}</span>
+            <h2 style="margin:0;font-size:17px;font-weight:700;color:#2d3142;">${k2.name}</h2>
+          </div>
+          <p style="font-size:13px;color:#444;line-height:1.6;margin:0 0 14px;">${k2.description}</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+            <div style="background:#f8f6f1;border-radius:8px;padding:14px 16px;">
+              <h4 style="margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#999;font-weight:700;">Scope &amp; Coverage</h4>
+              ${scopeItems.map((s2) => `<div style="font-size:12px;color:#444;line-height:1.5;padding:2px 0;padding-left:14px;position:relative;"><span style="position:absolute;left:0;color:${k2.color};">•</span>${s2}</div>`).join("")}
+            </div>
+            <div>
+              <div style="background:#f8f6f1;border-radius:8px;padding:14px 16px;margin-bottom:10px;">
+                <h4 style="margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#999;font-weight:700;">How It's Measured</h4>
+                <p style="font-size:12px;color:#444;line-height:1.5;margin:0;">${k2.metrics}</p>
+              </div>
+              ${k2.reporting ? `<div style="background:#f8f6f1;border-radius:8px;padding:14px 16px;">
+                <h4 style="margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#999;font-weight:700;">Reporting &amp; Tracking</h4>
+                <p style="font-size:12px;color:#444;line-height:1.5;margin:0;">${k2.reporting}</p>
+              </div>` : ""}
+            </div>
+          </div>
+          <div style="display:flex;gap:24px;margin-bottom:14px;">
+            <div><span style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:#2d3142;">${s.count}</span> <span style="font-size:12px;color:#999;">entries</span></div>
+            <div><span style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;color:#2d3142;">${s.hours.toFixed(1)}</span> <span style="font-size:12px;color:#999;">hours</span></div>
+          </div>
+          ${logRows ? `<table style="width:100%;border-collapse:collapse;font-family:Manrope,sans-serif;"><thead><tr style="background:#f0ede6;"><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#999;font-weight:700;">Date</th><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#999;font-weight:700;">Detail</th><th style="padding:8px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#999;font-weight:700;">Hours</th></tr></thead><tbody>${logRows}</tbody></table>` : `<p style="font-size:13px;color:#aaa;font-style:italic;">No entries logged yet.</p>`}
+        </div>`;
+    }).join("");
+    const summaryRows = scopedKpis.map((k2) => {
+      const sg2 = stats[k2.id] || { recent: null };
+      const s = exportStats[k2.id] || { count: 0, hours: 0 };
+      return `<tr><td style="padding:8px 12px;border-bottom:1px solid #e8e6e0;"><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${k2.color};margin-right:8px;"></span>${k2.name}</td><td style="padding:8px 12px;border-bottom:1px solid #e8e6e0;font-family:'IBM Plex Mono',monospace;text-align:center;">${s.count}</td><td style="padding:8px 12px;border-bottom:1px solid #e8e6e0;font-family:'IBM Plex Mono',monospace;text-align:center;">${s.hours.toFixed(1)}</td><td style="padding:8px 12px;border-bottom:1px solid #e8e6e0;font-family:'IBM Plex Mono',monospace;text-align:center;color:#888;">${sg2.recent ? fmtDate(sg2.recent) : "—"}</td></tr>`;
     }).join("");
     const backupJson = JSON.stringify({ format: "kpi-tracker-backup", version: 1, exported: (/* @__PURE__ */ new Date()).toISOString(), kpis, entries }).replace(/</g, "\\u003c");
-    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>KPI Report — ${today}</title><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"><style>*{box-sizing:border-box}body{font-family:Manrope,sans-serif;max-width:850px;margin:0 auto;padding:40px 32px;color:#2d3142;background:#fff;line-height:1.5}@media print{body{padding:20px}}</style></head><body><div style="border-bottom:3px solid #2d3142;padding-bottom:16px;margin-bottom:32px;"><h1 style="margin:0;font-size:28px;font-weight:800;">KPI Report</h1>${`<p style="margin:6px 0 0;font-size:14px;color:#888;font-family:'IBM Plex Mono',monospace;">${esc(name)}${role ? " · " + esc(role) : ""}</p>`}<p style="margin:4px 0 0;font-size:13px;color:#aaa;font-family:'IBM Plex Mono',monospace;">Generated ${today} · Period: ${rng.label}</p></div><div style="margin-bottom:36px;"><h2 style="font-size:18px;font-weight:700;margin:0 0 14px;">Summary</h2><div style="display:flex;gap:32px;margin-bottom:16px;"><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${exportEntryCount}</span><br><span style="font-size:12px;color:#999;">entries</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${exportTotalHours.toFixed(1)}</span><br><span style="font-size:12px;color:#999;">hours</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${kpis.length}</span><br><span style="font-size:12px;color:#999;">KPIs</span></div></div></div><div style="border-top:2px solid #e8e6e0;padding-top:28px;">${kpiSections}</div><div style="margin-top:40px;padding-top:16px;border-top:1px solid #e8e6e0;"><p style="font-size:11px;color:#aaa;font-family:'IBM Plex Mono',monospace;">End of report · ${exportEntryCount} entries · ${exportTotalHours.toFixed(1)} hours · ${rng.label}</p></div><script type="application/json" id="kpi-backup-data">${backupJson}<\/script></body></html>`;
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>KPI Report — ${today}</title><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"><style>*{box-sizing:border-box}body{font-family:Manrope,sans-serif;max-width:850px;margin:0 auto;padding:40px 32px;color:#2d3142;background:#fff;line-height:1.5}@media print{body{padding:20px}.no-print{display:none}}</style></head><body>
+      <div style="border-bottom:3px solid #2d3142;padding-bottom:16px;margin-bottom:32px;"><h1 style="margin:0;font-size:28px;font-weight:800;letter-spacing:-0.03em;">KPI Ownership &amp; Development Report</h1><p style="margin:6px 0 0;font-size:14px;color:#888;font-family:'IBM Plex Mono',monospace;">${esc(getUserName() || "")}${getUserRole() ? " · " + esc(getUserRole()) : ""}</p><p style="margin:4px 0 0;font-size:13px;color:#aaa;font-family:'IBM Plex Mono',monospace;">Generated ${today} · Period: ${rng.label}</p></div>
+      <div style="margin-bottom:36px;"><h2 style="font-size:18px;font-weight:700;margin:0 0 14px;">Summary</h2><div style="display:flex;gap:32px;margin-bottom:16px;"><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${exportEntryCount}</span><br><span style="font-size:12px;color:#999;">total entries</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${exportTotalHours.toFixed(1)}</span><br><span style="font-size:12px;color:#999;">hours logged</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${kpis.length}</span><br><span style="font-size:12px;color:#999;">KPI areas</span></div></div><table style="width:100%;border-collapse:collapse;"><thead><tr style="background:#f0ede6;"><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#999;font-weight:700;">KPI</th><th style="padding:8px 12px;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#999;font-weight:700;">Entries</th><th style="padding:8px 12px;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#999;font-weight:700;">Hours</th><th style="padding:8px 12px;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#999;font-weight:700;">Last Logged</th></tr></thead><tbody>${summaryRows}</tbody></table></div>
+      <div style="border-top:2px solid #e8e6e0;padding-top:28px;"><h2 style="font-size:18px;font-weight:700;margin:0 0 24px;">KPI Detail — Framework &amp; Work Log</h2>${kpiSections}</div>
+      <div style="margin-top:40px;padding-top:16px;border-top:1px solid #e8e6e0;"><p style="font-size:11px;color:#aaa;font-family:'IBM Plex Mono',monospace;">End of report · ${exportEntryCount} entries across ${scopedKpis.length} KPIs · ${exportTotalHours.toFixed(1)} hours total · ${rng.label}</p></div><script type="application/json" id="kpi-backup-data">${backupJson}<\/script></body></html>`;
     try {
       const blob = new Blob([html], { type: "text/html" });
       const url = URL.createObjectURL(blob);
@@ -7527,17 +7690,34 @@ function KPITracker() {
     return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.setupWrap, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.setupCard, children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 32, marginBottom: 12, display: "block" }, children: "◆" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { style: { fontSize: 22, fontWeight: 800, color: "#2d3142", marginBottom: 6 }, children: "KPI Tracker" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 14, color: "#888", marginBottom: 20, lineHeight: 1.6 }, children: "Paste your Google Apps Script deployment URL to get started." }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "url", placeholder: "https://script.google.com/macros/s/…/exec", value: apiUrlInput, onChange: (e) => setApiUrlInput(e.target.value), style: { ...S.input, marginBottom: 10 } }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "text", placeholder: "Your name (optional, for exports)", value: nameInput, onChange: (e) => setNameInput(e.target.value), style: { ...S.input, marginBottom: 10 } }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "text", placeholder: "Your role (optional, for exports)", value: roleInput, onChange: (e) => setRoleInput(e.target.value), style: { ...S.input, marginBottom: 12 } }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.primaryBtn, width: "100%", opacity: apiUrlInput ? 1 : 0.4 }, disabled: !apiUrlInput, onClick: saveSettings, children: "Connect" })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 14, color: "#888", marginBottom: 24, lineHeight: 1.6 }, children: "Paste your Google Apps Script deployment URL to connect." }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "input",
+        {
+          type: "url",
+          placeholder: "https://script.google.com/macros/s/…/exec",
+          value: apiUrlInput,
+          onChange: (e) => setApiUrlInput(e.target.value),
+          style: { ...S.input, marginBottom: 12 }
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          style: { ...S.primaryBtn, width: "100%", opacity: apiUrlInput ? 1 : 0.4 },
+          disabled: !apiUrlInput,
+          onClick: saveSettings,
+          children: "Connect"
+        }
+      )
     ] }) });
   }
-  if (loading) return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.setupWrap, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { width: 12, height: 12, borderRadius: "50%", background: "#2d3142", animation: "pulse 1s infinite" } }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { color: "#888", marginTop: 16, fontSize: 14 }, children: "Loading…" })
-  ] });
+  if (loading) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.setupWrap, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { width: 12, height: 12, borderRadius: "50%", background: "#2d3142", animation: "pulse 1s infinite" } }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { color: "#888", marginTop: 16, fontSize: 14 }, children: "Loading…" })
+    ] });
+  }
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { minHeight: "100vh", background: "#f8f6f1" }, children: [
     toast && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: toast.ok ? "toast ok" : "toast", children: toast.msg }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("nav", { style: { ...S.nav, paddingTop: "env(safe-area-inset-top)", height: "auto", minHeight: 56 }, children: [
@@ -7545,16 +7725,14 @@ function KPITracker() {
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: S.logoIcon, children: "◆" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: S.logoText, children: "KPI Tracker" })
       ] }),
-      !isMobile && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.navItems, children: [["dashboard", "Dashboard"], ["log", "Work Log"], ["framework", "Framework"], ["appraisal", "Appraisal"]].map(([key, label]) => /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => setTab(key), style: { ...S.navBtn, ...tab === key ? S.navBtnActive : {} }, children: label }, key)) }),
+      !isMobile && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.navItems, children: [["dashboard", "Dashboard"], ["log", "Work Log"], ["framework", "Framework"], ["appraisal", "Appraisal"], ["settings", "Settings"]].map(([key, label]) => /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => setTab(key), style: { ...S.navBtn, ...tab === key ? S.navBtnActive : {} }, children: label }, key)) }),
       isMobile && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
         syncing && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#c9962b", animation: "pulse 0.6s infinite" } }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: 8, height: 8, borderRadius: "50%", background: connected ? "#4a7c59" : "#b44" } }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: 8, height: 8, borderRadius: "50%", background: connected ? "#4a7c59" : "#b44" }, title: connected ? "Connected" : "Disconnected" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: refreshData, style: S.gearBtn, title: "Refresh from sheet", children: /* @__PURE__ */ jsxRuntimeExports.jsx(IconRefresh, {}) }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { position: "relative" }, ref: exportRef, onClick: (e) => e.stopPropagation(), children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => {
-            setShowExportDialog((v2) => !v2);
-          }, style: S.exportBtn, children: "Export ↓" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => setShowExportDialog((v2) => !v2), style: S.exportBtn, title: "Export report", children: "Export ↓" }),
           showExportDialog && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.exportDropdown, children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 11, fontWeight: 700, color: "#999", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 8px" }, children: "Export period" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 2 }, children: [["all", "All entries"], ["month", "This month"], ["quarter", "This quarter"], ["year", "This year"], ["custom", "Custom range…"]].map(([p2, label]) => /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "flex", alignItems: "center", gap: 9, fontSize: 13, color: "#2d3142", cursor: "pointer", padding: "7px 10px", background: exportRange.preset === p2 ? "#f0ede6" : "transparent", borderRadius: 6 }, children: [
@@ -7578,27 +7756,23 @@ function KPITracker() {
           ] })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => {
-          setShowSettings(!showSettings);
+          setTab("settings");
           setApiUrlInput(getApiUrl());
           setNameInput(getUserName());
           setRoleInput(getUserRole());
-        }, style: S.gearBtn, children: /* @__PURE__ */ jsxRuntimeExports.jsx(IconGear, {}) })
+          window.scrollTo({ top: 0 });
+        }, style: S.gearBtn, title: "Settings", children: /* @__PURE__ */ jsxRuntimeExports.jsx(IconGear, {}) })
       ] })
     ] }),
     showSettings && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.settingsPanel, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { maxWidth: 600, margin: "0 auto" }, children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { style: { fontSize: 15, fontWeight: 700, color: "#2d3142", marginBottom: 12 }, children: "Settings" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Apps Script Deployment URL" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "url", value: apiUrlInput, onChange: (e) => setApiUrlInput(e.target.value), style: { ...S.input, marginBottom: 10 } }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Your Name (for exports)" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "text", value: nameInput, onChange: (e) => setNameInput(e.target.value), style: { ...S.input, marginBottom: 10 } }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Your Role (for exports)" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "text", value: roleInput, onChange: (e) => setRoleInput(e.target.value), style: { ...S.input, marginBottom: 10 } }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end" }, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.secondaryBtn, onClick: () => setShowSettings(false), children: "Cancel" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.primaryBtn, onClick: saveSettings, children: "Save & Reconnect" })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 16, borderTop: "1px solid #e8e6e0", paddingTop: 12, display: "flex", gap: 12, flexWrap: "wrap" }, children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.linkBtn, onClick: exportCsv, children: "Download CSV backup" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.linkBtn, onClick: () => importFileRef.current?.click(), children: "Import backup (HTML export)" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           "input",
@@ -7614,11 +7788,19 @@ function KPITracker() {
           }
         ),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.linkBtn, color: "#b44" }, onClick: () => {
-          if (confirm("Reset all KPIs and entries?")) resetData();
+          if (confirm("Reset all data to defaults?")) resetData();
         }, children: "Reset all data" })
       ] })
     ] }) }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("main", { style: { ...S.main, paddingBottom: isMobile ? 110 : 60 }, children: [
+      periods.length > 0 && tab !== "settings" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 18, padding: "10px 14px", background: isPastPeriod ? "#fdf0e6" : "#eef2ee", border: "1px solid " + (isPastPeriod ? "#e0b894" : "#cdddd0"), borderRadius: 8 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 12, fontWeight: 700, color: "#666", textTransform: "uppercase", letterSpacing: "0.04em" }, children: "Period" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("select", { value: viewPeriodId, onChange: (e) => switchPeriod(e.target.value), style: { ...S.input, maxWidth: 220, padding: "6px 10px", fontSize: 13 }, children: periods.map((p2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: p2.id, children: [
+          p2.label,
+          p2.id === activePeriodId ? " (current)" : ""
+        ] }, p2.id)) }),
+        isPastPeriod && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 12, color: "#a86a2e", fontWeight: 600 }, children: "Viewing a past period — changes here edit historical data." })
+      ] }),
       tab === "dashboard" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.pageHeader, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { style: S.h1, children: "Dashboard" }),
@@ -7631,21 +7813,13 @@ function KPITracker() {
             " KPIs"
           ] })
         ] }),
-        kpis.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.empty, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.emptyText, children: "No KPIs defined yet." }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { color: "#888", fontSize: 14, marginBottom: 12 }, children: "Head to the Framework tab to add your first KPI." }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.primaryBtn, onClick: () => {
-            setTab("framework");
-            setShowAddKpi(true);
-          }, children: "Add your first KPI →" })
-        ] }),
-        kpis.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.cardGrid, ref: dashGridRef, children: kpis.map((k2) => {
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.cardGrid, ref: dashGridRef, children: scopedKpis.map((k2) => {
           const s = stats[k2.id] || { count: 0, recent: null };
           const isOpen = expandedDashKpi === k2.id;
           const kpiEntries = isOpen ? entries.filter((e) => e.kpiId === k2.id).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5) : [];
           return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.card, gridColumn: isOpen ? "1 / -1" : "auto", cursor: "pointer" }, onClick: () => setExpandedDashKpi(isOpen ? null : k2.id), children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { height: 4, background: k2.color } }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { padding: "16px 18px 18px" }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { ...S.cardBar, background: k2.color } }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.cardInner, children: [
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }, children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { style: S.cardTitle, children: k2.name }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { color: "#bbb", fontSize: 12, flexShrink: 0 }, children: isOpen ? "▾" : "▸" })
@@ -7654,7 +7828,10 @@ function KPITracker() {
                 /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: S.statNum, children: s.count }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: S.statLabel, children: s.count === 1 ? "entry" : "entries" })
               ] }) }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.cardRecent, children: s.recent ? "Last: " + fmtDateShortGB(s.recent) : "No entries yet" }),
+              s.recent ? /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: S.cardRecent, children: [
+                "Last logged: ",
+                fmtDateShortGB(s.recent)
+              ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.cardRecent, children: "No entries yet" }),
               isOpen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 14, borderTop: "1px solid #f0ede6", paddingTop: 6 }, children: [
                 kpiEntries.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 13, color: "#aaa", fontStyle: "italic", margin: "8px 0 0" }, children: "No entries logged for this KPI yet." }),
                 kpiEntries.map((e) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.activityRow, children: [
@@ -7686,12 +7863,12 @@ function KPITracker() {
             ] })
           ] }, k2.id);
         }) }),
-        entries.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 32 }, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { style: S.h2, children: "Recent activity" }),
-          entries.slice(0, 5).map((e) => {
+        scopedEntries.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 32 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { style: S.h2, children: "Recent Activity" }),
+          scopedEntries.slice(0, 5).map((e) => {
             const k2 = getKpi(e.kpiId);
             return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.activityRow, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { width: 8, height: 8, borderRadius: "50%", background: k2?.color || "#999", flexShrink: 0 } }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { ...S.activityDot, background: k2?.color || "#999" } }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: S.activityTitle, children: e.title }),
                 /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: S.activityMeta, children: [
@@ -7702,6 +7879,13 @@ function KPITracker() {
               ] })
             ] }, e.id);
           })
+        ] }),
+        scopedEntries.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.empty, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.emptyText, children: "No work logged yet." }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.primaryBtn, onClick: () => {
+            setTab("log");
+            setShowForm(true);
+          }, children: "Log your first entry →" })
         ] })
       ] }),
       tab === "log" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
@@ -7710,21 +7894,14 @@ function KPITracker() {
             /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { style: S.h1, children: "Work Log" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.subtitle, children: "Record work and assign it to your KPIs" })
           ] }),
-          !showForm && kpis.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.primaryBtn, onClick: () => {
+          !showForm && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.primaryBtn, onClick: () => {
             setEditingEntry(null);
             setForm(blankEntry);
             setShowForm(true);
           }, children: "+ New Entry" })
         ] }),
-        kpis.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.empty, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.emptyText, children: "Add KPIs first before logging work." }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.primaryBtn, onClick: () => {
-            setTab("framework");
-            setShowAddKpi(true);
-          }, children: "Go to Framework →" })
-        ] }),
         showForm && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.formCard, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { style: { fontSize: 16, fontWeight: 700, color: "#2d3142", margin: "0 0 18px" }, children: editingEntry ? "Edit Entry" : "New Entry" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { style: S.formTitle, children: editingEntry ? "Edit Entry" : "New Entry" }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.formGrid, gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr" }, children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fieldWrap, children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Date" }),
@@ -7738,7 +7915,7 @@ function KPITracker() {
               /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "KPI Category" }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: form.kpiId, onChange: (e) => setForm({ ...form, kpiId: e.target.value }), style: S.input, children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "Select KPI…" }),
-                kpis.map((k2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: k2.id, children: k2.name }, k2.id))
+                scopedKpis.map((k2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: k2.id, children: k2.name }, k2.id))
               ] })
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, gridColumn: "1 / -1" }, children: [
@@ -7763,13 +7940,13 @@ function KPITracker() {
             /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.primaryBtn, opacity: !form.title || !form.kpiId ? 0.4 : 1 }, disabled: !form.title || !form.kpiId, onClick: editingEntry ? updateEntry : addEntry, children: editingEntry ? "Save Changes" : "Add Entry" })
           ] })
         ] }),
-        entries.length > 0 && kpis.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 20 }, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }, children: [
+        scopedEntries.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 20 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.filterBar, children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: filterKpi, onChange: (e) => setFilterKpi(e.target.value), style: { ...S.input, maxWidth: 260 }, children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "all", children: "All KPIs" }),
-              kpis.map((k2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: k2.id, children: k2.name }, k2.id))
+              scopedKpis.map((k2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: k2.id, children: k2.name }, k2.id))
             ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { fontSize: 13, color: "#999", fontFamily: "'IBM Plex Mono', monospace" }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: S.filterCount, children: [
               filteredEntries.length,
               " entr",
               filteredEntries.length === 1 ? "y" : "ies"
@@ -7778,25 +7955,25 @@ function KPITracker() {
           filteredEntries.sort((a, b) => b.date.localeCompare(a.date)).map((e) => {
             const k2 = getKpi(e.kpiId);
             return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.entryCard, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.entryHeader, children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }, children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 11, fontWeight: 700, color: "#fff", padding: "2px 8px", borderRadius: 4, background: k2?.color || "#999", whiteSpace: "nowrap" }, children: k2?.name || "Unknown" }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 12, color: "#aaa", fontFamily: "'IBM Plex Mono', monospace" }, children: fmtDateGB(e.date) })
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.entryTitleRow, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { ...S.kpiBadge, background: k2?.color || "#999" }, children: k2?.name || "Unknown" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: S.entryDate, children: fmtDateGB(e.date) })
                   ] }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: { fontSize: 15, fontWeight: 700, color: "#2d3142", margin: 0 }, children: e.title })
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: S.entryTitle, children: e.title })
                 ] }),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { fontFamily: "'IBM Plex Mono', monospace", fontSize: 16, fontWeight: 600, color: "#2d3142", flexShrink: 0 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: S.entryHours, children: [
                   e.hours,
                   "h"
                 ] })
               ] }),
-              e.description && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 13, color: "#666", lineHeight: 1.5, margin: "8px 0 0" }, children: e.description }),
-              e.evidence && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { fontSize: 12, color: "#5b6abf", fontFamily: "'IBM Plex Mono', monospace", margin: "6px 0 0" }, children: [
+              e.description && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.entryDesc, children: e.description }),
+              e.evidence && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: S.entryEvidence, children: [
                 "↗ ",
                 e.evidence
               ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 6, marginTop: 10, alignItems: "center" }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.entryActions, children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.linkBtn, onClick: () => {
                   setEditingEntry(e.id);
                   setForm(e);
@@ -7811,41 +7988,57 @@ function KPITracker() {
               ] })
             ] }, e.id);
           })
+        ] }),
+        scopedEntries.length === 0 && !showForm && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.empty, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.emptyText, children: "Your work log is empty." }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { color: "#888", fontSize: 14, fontFamily: "Manrope" }, children: "Start logging work to build your KPI evidence base." })
         ] })
       ] }),
       tab === "framework" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.pageHeader, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { style: S.h1, children: "KPI Framework" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.subtitle, children: "Define your KPIs, then log work against them" })
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: S.subtitle, children: [
+              currentPeriod ? currentPeriod.label + " — " : "",
+              scopedKpis.length,
+              " KPI",
+              scopedKpis.length === 1 ? "" : "s",
+              " · scope, measurement, reporting"
+            ] })
           ] }),
-          !showAddKpi && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.primaryBtn, onClick: () => setShowAddKpi(true), children: "+ Add KPI" })
+          !showAddKpi && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.primaryBtn, onClick: () => {
+            setNewKpiForm(blankKpi);
+            setShowAddKpi(true);
+          }, children: "+ Add KPI" })
         ] }),
         showAddKpi && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.formCard, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { style: { fontSize: 16, fontWeight: 700, color: "#2d3142", margin: "0 0 18px" }, children: "New KPI" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("h3", { style: { fontSize: 16, fontWeight: 700, color: "#2d3142", margin: "0 0 14px" }, children: [
+            "New KPI",
+            currentPeriod ? " for " + currentPeriod.label : ""
+          ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fieldWrap, children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Name" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("input", { placeholder: "e.g. Technical Delivery", value: newKpiForm.name, onChange: (e) => setNewKpiForm({ ...newKpiForm, name: e.target.value }), style: S.input })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: newKpiForm.name, onChange: (e) => setNewKpiForm({ ...newKpiForm, name: e.target.value }), style: S.input, placeholder: "KPI name" })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, marginTop: 10 }, children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Description" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { placeholder: "What does this KPI cover?", value: newKpiForm.description, onChange: (e) => setNewKpiForm({ ...newKpiForm, description: e.target.value }), style: { ...S.input, minHeight: 60, resize: "vertical" } })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { value: newKpiForm.description, onChange: (e) => setNewKpiForm({ ...newKpiForm, description: e.target.value }), style: { ...S.input, minHeight: 60, resize: "vertical" } })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, marginTop: 10 }, children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Scope (semicolon-separated)" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { placeholder: "Item one; Item two; Item three", value: newKpiForm.scope, onChange: (e) => setNewKpiForm({ ...newKpiForm, scope: e.target.value }), style: { ...S.input, minHeight: 60, resize: "vertical" } })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { value: newKpiForm.scope, onChange: (e) => setNewKpiForm({ ...newKpiForm, scope: e.target.value }), style: { ...S.input, minHeight: 70, resize: "vertical" }, placeholder: "Item one; Item two; Item three" })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, marginTop: 10 }, children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Metrics" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("input", { placeholder: "How is it measured?", value: newKpiForm.metrics, onChange: (e) => setNewKpiForm({ ...newKpiForm, metrics: e.target.value }), style: S.input })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: newKpiForm.metrics, onChange: (e) => setNewKpiForm({ ...newKpiForm, metrics: e.target.value }), style: S.input })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, marginTop: 10 }, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Reporting method" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { placeholder: "How will delivery be tracked?", value: newKpiForm.reporting, onChange: (e) => setNewKpiForm({ ...newKpiForm, reporting: e.target.value }), style: { ...S.input, minHeight: 50, resize: "vertical" } })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Reporting & Tracking Method" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { value: newKpiForm.reporting, onChange: (e) => setNewKpiForm({ ...newKpiForm, reporting: e.target.value }), style: { ...S.input, minHeight: 60, resize: "vertical" } })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, marginTop: 10 }, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Colour" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }, children: COLORS.map((c) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { onClick: () => setNewKpiForm({ ...newKpiForm, color: c }), style: { width: 28, height: 28, borderRadius: 6, background: c, cursor: "pointer", border: newKpiForm.color === c ? "3px solid #2d3142" : "3px solid transparent" } }, c)) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Accent Colour" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }, children: ["#4a7c59", "#5b6abf", "#c9962b", "#b55a30", "#7a4f8a", "#3d7a8a", "#b5445a", "#2d6b4f", "#8a6b3d"].map((c) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { onClick: () => setNewKpiForm({ ...newKpiForm, color: c }), style: { width: 28, height: 28, borderRadius: 6, background: c, cursor: "pointer", border: newKpiForm.color === c ? "3px solid #2d3142" : "3px solid transparent" } }, c)) })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.formActions, children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.secondaryBtn, onClick: () => {
@@ -7855,61 +8048,51 @@ function KPITracker() {
             /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.primaryBtn, opacity: newKpiForm.name ? 1 : 0.4 }, disabled: !newKpiForm.name, onClick: addNewKpi, children: "Add KPI" })
           ] })
         ] }),
-        kpis.length === 0 && !showAddKpi && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.empty, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.emptyText, children: "No KPIs defined yet." }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { color: "#888", fontSize: 14 }, children: 'Click "Add KPI" above to get started.' })
+        scopedKpis.length === 0 && !showAddKpi && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.empty, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.emptyText, children: "No KPIs in this period yet." }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { color: "#888", fontSize: 14 }, children: "Add one above, or import from another period in Settings." })
         ] }),
-        kpis.map((k2) => {
+        scopedKpis.map((k2) => {
           const isExpanded = expandedKpi === k2.id;
           const isEditing = editingFramework === k2.id;
           const s = stats[k2.id] || { count: 0 };
           return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fwCard, children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fwHeader, onClick: () => setExpandedKpi(isExpanded ? null : k2.id), children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { width: 12, height: 12, borderRadius: 3, background: k2.color, flexShrink: 0 } }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { ...S.fwDot, background: k2.color } }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1 }, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { style: { fontSize: 14, fontWeight: 700, color: "#2d3142", margin: 0 }, children: k2.name }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 13, color: "#888", margin: "2px 0 0", lineHeight: 1.4 }, children: k2.description })
+                /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { style: S.fwName, children: k2.name }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.fwSummary, children: k2.description })
               ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontFamily: "'IBM Plex Mono'", fontSize: 16, fontWeight: 600, color: "#2d3142" }, children: s.count }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 10, color: "#aaa" }, children: "entries" })
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fwStatsSmall, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: S.fwStatNum, children: s.count }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: S.fwStatLabel, children: "entries" })
               ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { color: "#bbb", fontSize: 14, flexShrink: 0 }, children: isExpanded ? "▾" : "▸" })
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: S.chevron, children: isExpanded ? "▾" : "▸" })
             ] }),
-            isExpanded && !isEditing && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { padding: "0 20px 20px", borderTop: "1px solid #f0ede6" }, children: [
-              k2.scope && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 16 }, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: S.fwSectionTitle, children: "Scope & coverage" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 6 }, children: k2.scope.split(";").map((item, i) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#444", lineHeight: 1.4 }, children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: 6, height: 6, borderRadius: "50%", background: k2.color, flexShrink: 0 } }),
+            isExpanded && !isEditing && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fwBody, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fwSection, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: S.fwSectionTitle, children: "Scope & Coverage" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.fwScopeList, children: k2.scope.split(";").map((item, i) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fwScopeItem, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { ...S.fwScopeDot, background: k2.color } }),
                   item.trim()
                 ] }, i)) })
               ] }),
-              k2.metrics && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 16 }, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: S.fwSectionTitle, children: "How it's measured" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 13, color: "#444", lineHeight: 1.5, margin: 0 }, children: k2.metrics })
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fwSection, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: S.fwSectionTitle, children: "How It's Measured" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.fwMetrics, children: k2.metrics })
               ] }),
-              k2.reporting && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 16 }, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: S.fwSectionTitle, children: "Reporting & tracking" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 13, color: "#444", lineHeight: 1.5, margin: 0 }, children: k2.reporting })
+              k2.reporting && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fwSection, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: S.fwSectionTitle, children: "Reporting & Tracking" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.fwMetrics, children: k2.reporting })
               ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8, marginTop: 16 }, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.linkBtn, onClick: (e) => {
-                  e.stopPropagation();
-                  setEditingFramework(k2.id);
-                  setFrameworkForm({ ...k2 });
-                }, children: "Edit" }),
-                confirmDeleteKpi === k2.id ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 13, color: "#b44" }, children: "Delete KPI and all its entries?" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.linkBtn, color: "#b44" }, onClick: () => deleteKpi(k2.id), children: "Yes" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.linkBtn, onClick: () => setConfirmDeleteKpi(null), children: "No" })
-                ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.linkBtn, color: "#b44" }, onClick: (e) => {
-                  e.stopPropagation();
-                  setConfirmDeleteKpi(k2.id);
-                }, children: "Delete" })
-              ] })
+              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.linkBtn, marginTop: 12 }, onClick: (e) => {
+                e.stopPropagation();
+                setEditingFramework(k2.id);
+                setFrameworkForm({ ...k2 });
+              }, children: "Edit this KPI" })
             ] }),
-            isExpanded && isEditing && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { padding: "0 20px 20px", borderTop: "1px solid #f0ede6" }, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, marginTop: 16 }, children: [
+            isExpanded && isEditing && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fwBody, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fieldWrap, children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Name" }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: frameworkForm.name, onChange: (e) => setFrameworkForm({ ...frameworkForm, name: e.target.value }), style: S.input })
               ] }),
@@ -7926,23 +8109,40 @@ function KPITracker() {
                 /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: frameworkForm.metrics, onChange: (e) => setFrameworkForm({ ...frameworkForm, metrics: e.target.value }), style: S.input })
               ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, marginTop: 10 }, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Reporting method" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Reporting & Tracking Method" }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { value: frameworkForm.reporting || "", onChange: (e) => setFrameworkForm({ ...frameworkForm, reporting: e.target.value }), style: { ...S.input, minHeight: 60, resize: "vertical" } })
               ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, marginTop: 10 }, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Colour" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }, children: COLORS.map((c) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { onClick: () => setFrameworkForm({ ...frameworkForm, color: c }), style: { width: 28, height: 28, borderRadius: 6, background: c, cursor: "pointer", border: frameworkForm.color === c ? "3px solid #2d3142" : "3px solid transparent" } }, c)) })
+                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Accent Colour" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }, children: ["#4a7c59", "#5b6abf", "#c9962b", "#b55a30", "#7a4f8a", "#3d7a8a", "#b5445a", "#2d6b4f", "#8a6b3d"].map((c) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { onClick: () => setFrameworkForm({ ...frameworkForm, color: c }), style: { width: 28, height: 28, borderRadius: 6, background: c, cursor: "pointer", border: frameworkForm.color === c ? "3px solid #2d3142" : "3px solid transparent", transition: "border 0.15s" } }, c)) })
               ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.formActions, children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.secondaryBtn, onClick: () => {
-                  setEditingFramework(null);
-                  setFrameworkForm(null);
-                }, children: "Cancel" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.primaryBtn, onClick: saveFramework, children: "Save" })
+              periods.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, marginTop: 10 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Period" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("select", { value: frameworkForm.periodId || "", onChange: (e) => setFrameworkForm({ ...frameworkForm, periodId: e.target.value }), style: S.input, children: periods.map((p2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: p2.id, children: [
+                  p2.label,
+                  p2.id === activePeriodId ? " (current)" : ""
+                ] }, p2.id)) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 11, color: "#999", margin: "4px 0 0" }, children: "Move this KPI to a different period if it was assigned to the wrong one." })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.formActions, justifyContent: "space-between" }, children: [
+                confirmDeleteKpi === frameworkForm.id ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8, alignItems: "center" }, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 13, color: "#b44" }, children: "Delete this KPI?" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.linkBtn, color: "#b44" }, onClick: () => deleteKpiById(frameworkForm.id), children: "Yes" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.linkBtn, onClick: () => setConfirmDeleteKpi(null), children: "No" })
+                ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.linkBtn, color: "#b44" }, onClick: () => setConfirmDeleteKpi(frameworkForm.id), children: "Delete KPI" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 10 }, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.secondaryBtn, onClick: () => {
+                    setEditingFramework(null);
+                    setFrameworkForm(null);
+                    setConfirmDeleteKpi(null);
+                  }, children: "Cancel" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.primaryBtn, onClick: saveFramework, children: "Save" })
+                ] })
               ] })
             ] })
           ] }, k2.id);
-        })
+        }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginTop: 32, padding: "20px 24px", background: "#f0ede6", borderRadius: 10 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontFamily: "Manrope", fontSize: 13, color: "#666", lineHeight: 1.6, margin: 0 }, children: "Each KPI defines its scope, how it's measured, and how delivery is tracked. Add, edit, or remove KPIs as your objectives evolve, and use review periods to keep each year's framework separate." }) })
       ] }),
       tab === "appraisal" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.pageHeader, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
@@ -8004,9 +8204,159 @@ function KPITracker() {
             ] })
           ] }, a.id);
         })
+      ] }),
+      tab === "settings" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.pageHeader, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { style: S.h1, children: "Settings" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.subtitle, children: "Connection, review periods, and data" })
+        ] }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.formCard, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { style: { fontSize: 15, fontWeight: 700, color: "#2d3142", margin: "0 0 14px" }, children: "Connection" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fieldWrap, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Apps Script Deployment URL" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "url", value: apiUrlInput, onChange: (e) => setApiUrlInput(e.target.value), style: S.input })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, marginTop: 10 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Your Name (for exports)" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "text", value: nameInput, onChange: (e) => setNameInput(e.target.value), style: S.input })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, marginTop: 10 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Your Role (for exports)" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "text", value: roleInput, onChange: (e) => setRoleInput(e.target.value), style: S.input })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: 14 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.primaryBtn, onClick: saveSettings, children: "Save & Reconnect" }) })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.formCard, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { style: { fontSize: 15, fontWeight: 700, color: "#2d3142", margin: 0 }, children: "Review Periods" }),
+            !showPeriodForm && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.primaryBtn, onClick: () => {
+              setPeriodForm(blankPeriod);
+              setShowPeriodForm(true);
+            }, children: "+ New Period" })
+          ] }),
+          showPeriodForm && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { background: "#f8f6f1", borderRadius: 8, padding: 16, marginBottom: 14 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.fieldWrap, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Label" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("input", { placeholder: "e.g. 2026/27", value: periodForm.label, onChange: (e) => setPeriodForm({ ...periodForm, label: e.target.value }), style: S.input })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap" }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, flex: 1, minWidth: 130 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Start date" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "date", value: periodForm.startDate, onChange: (e) => setPeriodForm({ ...periodForm, startDate: e.target.value }), style: S.input })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, flex: 1, minWidth: 130 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "End date" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "date", value: periodForm.endDate, onChange: (e) => setPeriodForm({ ...periodForm, endDate: e.target.value }), style: S.input })
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 12, color: "#999", margin: "10px 0 0", lineHeight: 1.4 }, children: 'The new period starts empty and becomes active for logging. Use "Import KPIs" below to bring KPIs across from a previous period, or add new ones in the Framework tab.' }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.secondaryBtn, onClick: () => {
+                setShowPeriodForm(false);
+                setPeriodForm(blankPeriod);
+              }, children: "Cancel" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.primaryBtn, opacity: periodForm.label ? 1 : 0.4 }, disabled: !periodForm.label, onClick: createPeriod, children: "Create Period" })
+            ] })
+          ] }),
+          periods.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 13, color: "#aaa", margin: 0 }, children: "No periods yet. Create one to start scoping your KPIs and entries by year." }),
+          periods.slice().sort((a, b) => (b.startDate || "").localeCompare(a.startDate || "")).map((p2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "12px 0", borderBottom: "1px solid #f0ede6", flexWrap: "wrap" }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 160 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 14, fontWeight: 700, color: "#2d3142" }, children: p2.label }),
+                p2.id === activePeriodId && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 10, fontWeight: 800, color: "#fff", background: "#4a7c59", padding: "2px 7px", borderRadius: 4, letterSpacing: "0.04em" }, children: "CURRENT" }),
+                p2.id === viewPeriodId && p2.id !== activePeriodId && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 10, fontWeight: 800, color: "#fff", background: "#c9962b", padding: "2px 7px", borderRadius: 4, letterSpacing: "0.04em" }, children: "VIEWING" })
+              ] }),
+              (p2.startDate || p2.endDate) && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { fontSize: 12, color: "#999", margin: "3px 0 0", fontFamily: "'IBM Plex Mono', monospace" }, children: [
+                p2.startDate ? fmtDateGB(p2.startDate) : "—",
+                " → ",
+                p2.endDate ? fmtDateGB(p2.endDate) : "—"
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }, children: [
+              p2.id !== viewPeriodId && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.linkBtn, onClick: () => switchPeriod(p2.id), children: "View" }),
+              p2.id !== activePeriodId && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.linkBtn, onClick: () => makeActive(p2.id), children: "Make current" }),
+              confirmDeletePeriod === p2.id ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 12, color: "#b44" }, children: "Delete period + its data?" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.linkBtn, color: "#b44" }, onClick: () => deletePeriod(p2.id), children: "Yes" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.linkBtn, onClick: () => setConfirmDeletePeriod(null), children: "No" })
+              ] }) : periods.length > 1 && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.linkBtn, color: "#b44" }, onClick: () => setConfirmDeletePeriod(p2.id), children: "Delete" })
+            ] })
+          ] }, p2.id)),
+          periods.length > 1 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginTop: 16, borderTop: "1px solid #f0ede6", paddingTop: 16 }, children: !showImportKpis ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.secondaryBtn, onClick: () => {
+            setShowImportKpis(true);
+            setImportTargetPeriod(viewPeriodId || activePeriodId);
+            setImportSourcePeriod("");
+            setImportKpiPicks([]);
+          }, children: "Import KPIs from another period" }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { background: "#f8f6f1", borderRadius: 8, padding: 16 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: { fontSize: 13, fontWeight: 700, color: "#2d3142", margin: "0 0 12px" }, children: "Import KPIs" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 12, flexWrap: "wrap" }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, flex: 1, minWidth: 150 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "From period" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: importSourcePeriod, onChange: (e) => {
+                  setImportSourcePeriod(e.target.value);
+                  setImportKpiPicks([]);
+                }, style: S.input, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "Select…" }),
+                  periods.filter((p2) => p2.id !== importTargetPeriod).map((p2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: p2.id, children: p2.label }, p2.id))
+                ] })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.fieldWrap, flex: 1, minWidth: 150 }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Into period" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("select", { value: importTargetPeriod, onChange: (e) => setImportTargetPeriod(e.target.value), style: S.input, children: periods.map((p2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: p2.id, children: [
+                  p2.label,
+                  p2.id === activePeriodId ? " (current)" : ""
+                ] }, p2.id)) })
+              ] })
+            ] }),
+            importSourcePeriod && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 12 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("label", { style: S.label, children: "Choose KPIs to copy" }),
+              (() => {
+                const sourceKpis = kpis.filter((k2) => (k2.periodId || "") === importSourcePeriod);
+                const targetNames = kpis.filter((k2) => (k2.periodId || "") === importTargetPeriod).map((k2) => (k2.name || "").toLowerCase());
+                if (!sourceKpis.length) return /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 13, color: "#aaa", margin: "6px 0 0" }, children: "That period has no KPIs." });
+                return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }, children: sourceKpis.map((k2) => {
+                  const clash = targetNames.includes((k2.name || "").toLowerCase());
+                  return /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "flex", alignItems: "center", gap: 9, fontSize: 13, color: "#2d3142", cursor: "pointer", padding: "6px 8px", borderRadius: 6, background: importKpiPicks.includes(k2.id) ? "#eef2ee" : "transparent" }, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "checkbox", checked: importKpiPicks.includes(k2.id), onChange: (e) => setImportKpiPicks((prev) => e.target.checked ? [...prev, k2.id] : prev.filter((x2) => x2 !== k2.id)), style: { width: 15, height: 15, accentColor: "#2d3142" } }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: 10, height: 10, borderRadius: 3, background: k2.color, flexShrink: 0 } }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontWeight: 600 }, children: k2.name }),
+                    clash && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 11, color: "#a86a2e", fontWeight: 600 }, children: "· name already in target" })
+                  ] }, k2.id);
+                }) });
+              })()
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.secondaryBtn, onClick: () => {
+                setShowImportKpis(false);
+                setImportKpiPicks([]);
+                setImportSourcePeriod("");
+              }, children: "Cancel" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { style: { ...S.primaryBtn, opacity: importKpiPicks.length ? 1 : 0.4 }, disabled: !importKpiPicks.length, onClick: runKpiImport, children: [
+                "Import ",
+                importKpiPicks.length || "",
+                " KPI",
+                importKpiPicks.length === 1 ? "" : "s"
+              ] })
+            ] })
+          ] }) })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.formCard, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { style: { fontSize: 15, fontWeight: 700, color: "#2d3142", margin: "0 0 14px" }, children: "Data" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 12, flexWrap: "wrap" }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.secondaryBtn, onClick: () => {
+              setShowExportDialog(false);
+              exportReport({ preset: "all" });
+            }, children: "Export backup (all)" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: S.secondaryBtn, onClick: () => importFileRef.current?.click(), children: "Import backup" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("input", { ref: importFileRef, type: "file", accept: ".html,.json", style: { display: "none" }, onChange: (e) => {
+              importBackup(e.target.files?.[0]);
+              e.target.value = "";
+            } })
+          ] })
+        ] })
       ] })
     ] }),
-    isMobile && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.bottomNav, children: [["dashboard", "Dashboard", IconGrid], ["log", "Work Log", IconPen], ["framework", "Framework", IconList], ["appraisal", "Appraisal", IconClipboard]].map(([key, label, Icon]) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { onClick: () => {
+    isMobile && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.bottomNav, children: [["dashboard", "Dashboard", IconGrid], ["log", "Work Log", IconPen], ["framework", "Framework", IconList], ["appraisal", "Appraisal", IconClipboard], ["settings", "Settings", IconGear]].map(([key, label, Icon]) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { onClick: () => {
       setTab(key);
       window.scrollTo({ top: 0 });
     }, style: { ...S.bottomNavBtn, color: tab === key ? "#fff" : "rgba(255,255,255,0.45)" }, children: [
@@ -8025,19 +8375,21 @@ const S = {
   logoIcon: { color: "#c9962b", fontSize: 18 },
   logoText: { color: "#fff", fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em" },
   navItems: { display: "flex", gap: 4, marginLeft: 16, flex: 1 },
-  navBtn: { background: "transparent", border: "none", color: "rgba(255,255,255,0.55)", fontFamily: "Manrope", fontSize: 13, fontWeight: 600, padding: "8px 12px", borderRadius: 6, cursor: "pointer" },
+  navBtn: { background: "transparent", border: "none", color: "rgba(255,255,255,0.55)", fontFamily: "Manrope", fontSize: 13, fontWeight: 600, padding: "8px 12px", borderRadius: 6, cursor: "pointer", transition: "all 0.15s" },
   navBtnActive: { background: "rgba(255,255,255,0.12)", color: "#fff" },
   exportDropdown: { position: "absolute", top: "calc(100% + 8px)", right: 0, width: 260, maxWidth: "calc(100vw - 32px)", background: "#fff", borderRadius: 10, boxShadow: "0 8px 30px rgba(0,0,0,0.18)", padding: 14, zIndex: 300, textAlign: "left", boxSizing: "border-box" },
-  exportBtn: { background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", fontFamily: "Manrope", fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 5, cursor: "pointer" },
+  exportBtn: { background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", fontFamily: "Manrope", fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 5, cursor: "pointer", letterSpacing: "0.02em" },
   gearBtn: { background: "transparent", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", padding: "4px 6px", display: "flex", alignItems: "center", justifyContent: "center" },
   settingsPanel: { background: "#fff", borderBottom: "1px solid #e8e6e0", padding: "20px 24px", animation: "fadeIn 0.15s" },
   main: { maxWidth: 820, width: "100%", margin: "0 auto", padding: "28px 20px 60px" },
   pageHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 12 },
   h1: { fontSize: 24, fontWeight: 800, color: "#2d3142", margin: 0, letterSpacing: "-0.03em" },
-  h2: { fontSize: 17, fontWeight: 700, color: "#2d3142", margin: "0 0 14px" },
-  subtitle: { fontSize: 13, color: "#888", margin: "4px 0 0", fontFamily: "'IBM Plex Mono', monospace" },
+  h2: { fontSize: 17, fontWeight: 700, color: "#2d3142", margin: "0 0 14px", letterSpacing: "-0.02em" },
+  subtitle: { fontSize: 13, color: "#888", margin: "4px 0 0", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 400 },
   cardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 },
   card: { background: "#fff", borderRadius: 10, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" },
+  cardBar: { height: 4 },
+  cardInner: { padding: "16px 18px 18px" },
   cardTitle: { fontSize: 13, fontWeight: 700, color: "#2d3142", margin: "0 0 12px", lineHeight: 1.3 },
   cardStats: { display: "flex", gap: 20 },
   statBlock: { display: "flex", flexDirection: "column" },
@@ -8045,6 +8397,7 @@ const S = {
   statLabel: { fontSize: 11, color: "#999", fontWeight: 500, marginTop: 3 },
   cardRecent: { fontSize: 12, color: "#aaa", marginTop: 12, fontFamily: "'IBM Plex Mono', monospace" },
   activityRow: { display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid #eee" },
+  activityDot: { width: 8, height: 8, borderRadius: "50%", flexShrink: 0 },
   activityTitle: { display: "block", fontSize: 14, fontWeight: 600, color: "#2d3142" },
   activityMeta: { display: "block", fontSize: 12, color: "#999", fontFamily: "'IBM Plex Mono', monospace", marginTop: 2 },
   empty: { textAlign: "center", padding: "48px 20px", background: "#fff", borderRadius: 10, marginTop: 16 },
@@ -8053,15 +8406,40 @@ const S = {
   secondaryBtn: { background: "transparent", color: "#666", border: "1px solid #ddd", fontFamily: "Manrope", fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 7, cursor: "pointer" },
   linkBtn: { background: "none", border: "none", fontFamily: "Manrope", fontSize: 13, fontWeight: 600, color: "#5b6abf", cursor: "pointer", padding: "4px 8px" },
   formCard: { background: "#fff", borderRadius: 10, padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.06)", marginBottom: 20 },
+  formTitle: { fontSize: 16, fontWeight: 700, color: "#2d3142", margin: "0 0 18px" },
   formGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 },
   formActions: { display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18 },
   fieldWrap: { display: "flex", flexDirection: "column", gap: 4 },
   label: { fontSize: 12, fontWeight: 700, color: "#666", textTransform: "uppercase", letterSpacing: "0.04em" },
   input: { fontFamily: "Manrope", fontSize: 14, padding: "10px 12px", border: "1px solid #ddd", borderRadius: 7, outline: "none", background: "#fafaf8", color: "#2d3142", width: "100%", boxSizing: "border-box", WebkitAppearance: "none" },
+  filterBar: { display: "flex", alignItems: "center", gap: 12, marginBottom: 14 },
+  filterCount: { fontSize: 13, color: "#999", fontFamily: "'IBM Plex Mono', monospace" },
   entryCard: { background: "#fff", borderRadius: 10, padding: "16px 20px", marginBottom: 10, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" },
+  entryHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
+  entryTitleRow: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" },
+  kpiBadge: { fontSize: 11, fontWeight: 700, color: "#fff", padding: "2px 8px", borderRadius: 4, whiteSpace: "nowrap" },
+  entryDate: { fontSize: 12, color: "#aaa", fontFamily: "'IBM Plex Mono', monospace" },
+  entryTitle: { fontSize: 15, fontWeight: 700, color: "#2d3142", margin: 0 },
+  entryHours: { fontFamily: "'IBM Plex Mono', monospace", fontSize: 16, fontWeight: 600, color: "#2d3142", flexShrink: 0 },
+  entryDesc: { fontSize: 13, color: "#666", lineHeight: 1.5, margin: "8px 0 0" },
+  entryEvidence: { fontSize: 12, color: "#5b6abf", fontFamily: "'IBM Plex Mono', monospace", margin: "6px 0 0" },
+  entryActions: { display: "flex", gap: 6, marginTop: 10, alignItems: "center" },
   fwCard: { background: "#fff", borderRadius: 10, overflow: "hidden", marginBottom: 10, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" },
   fwHeader: { display: "flex", alignItems: "center", gap: 14, padding: "16px 20px", cursor: "pointer", userSelect: "none" },
-  fwSectionTitle: { fontSize: 12, fontWeight: 700, color: "#999", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 8px" }
+  fwDot: { width: 12, height: 12, borderRadius: 3, flexShrink: 0 },
+  fwName: { fontSize: 14, fontWeight: 700, color: "#2d3142", margin: 0 },
+  fwSummary: { fontSize: 13, color: "#888", margin: "2px 0 0", lineHeight: 1.4 },
+  fwStatsSmall: { display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 },
+  fwStatNum: { fontFamily: "'IBM Plex Mono'", fontSize: 16, fontWeight: 600, color: "#2d3142" },
+  fwStatLabel: { fontSize: 10, color: "#aaa" },
+  chevron: { color: "#bbb", fontSize: 14, flexShrink: 0 },
+  fwBody: { padding: "0 20px 20px", borderTop: "1px solid #f0ede6" },
+  fwSection: { marginTop: 16 },
+  fwSectionTitle: { fontSize: 12, fontWeight: 700, color: "#999", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 8px" },
+  fwScopeList: { display: "flex", flexDirection: "column", gap: 6 },
+  fwScopeItem: { display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#444", lineHeight: 1.4 },
+  fwScopeDot: { width: 6, height: 6, borderRadius: "50%", flexShrink: 0 },
+  fwMetrics: { fontSize: 13, color: "#444", lineHeight: 1.5, margin: 0 }
 };
 client.createRoot(document.getElementById("root")).render(/* @__PURE__ */ jsxRuntimeExports.jsx(KPITracker, {}));</script>
 </head>

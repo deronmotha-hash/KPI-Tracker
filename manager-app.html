@@ -7112,7 +7112,8 @@ function ManagerApp() {
   const [employees, setEmployees] = reactExports.useState([]);
   const [reviews, setReviews] = reactExports.useState([]);
   const [selectedEmpId, setSelectedEmpId] = reactExports.useState(localStorage.getItem("kpi-mgr-selected") || "");
-  const [empData, setEmpData] = reactExports.useState({ kpis: [], entries: [], appraisals: [] });
+  const [empData, setEmpData] = reactExports.useState({ kpis: [], entries: [], appraisals: [], periods: [] });
+  const [mgrViewPeriodId, setMgrViewPeriodId] = reactExports.useState("");
   const [showAssignForm, setShowAssignForm] = reactExports.useState(false);
   const blankTask = { title: "", description: "", due: "" };
   const [taskForm, setTaskForm] = reactExports.useState(blankTask);
@@ -7185,7 +7186,7 @@ function ManagerApp() {
   }, []);
   reactExports.useEffect(() => {
     if (!selectedEmpId) {
-      setEmpData({ kpis: [], entries: [], appraisals: [] });
+      setEmpData({ kpis: [], entries: [], appraisals: [], periods: [] });
       return;
     }
     const emp = employees.find((e) => e.id === selectedEmpId);
@@ -7196,17 +7197,21 @@ function ManagerApp() {
       try {
         const data = await apiGet(emp.apiUrl);
         if (data && !data.error) {
+          const eps = (data.periods || []).map((p2) => ({ ...p2, startDate: normDate(p2.startDate), endDate: normDate(p2.endDate) }));
           setEmpData({
             kpis: data.kpis || [],
             entries: (data.entries || []).map((e) => ({ ...e, date: normDate(e.date) })),
-            appraisals: (data.appraisals || []).map((a) => ({ ...a, assigned: normDate(a.assigned), due: normDate(a.due), respondedDate: normDate(a.respondedDate) }))
+            appraisals: (data.appraisals || []).map((a) => ({ ...a, assigned: normDate(a.assigned), due: normDate(a.due), respondedDate: normDate(a.respondedDate) })),
+            periods: eps
           });
+          const act = eps.find((p2) => String(p2.active).toLowerCase() === "yes") || eps[eps.length - 1];
+          setMgrViewPeriodId(act ? act.id : "");
         } else {
-          setEmpData({ kpis: [], entries: [], appraisals: [] });
+          setEmpData({ kpis: [], entries: [], appraisals: [], periods: [] });
           flash(data?.error || "Could not load employee data", false);
         }
       } catch (e) {
-        setEmpData({ kpis: [], entries: [], appraisals: [] });
+        setEmpData({ kpis: [], entries: [], appraisals: [], periods: [] });
         flash("Could not reach " + emp.name + "'s tracker — check their URL", false);
       }
       setEmpLoading(false);
@@ -7226,7 +7231,12 @@ function ManagerApp() {
         if (emp?.apiUrl) {
           const ed2 = await apiGet(emp.apiUrl);
           if (ed2 && !ed2.error) {
-            setEmpData({ kpis: ed2.kpis || [], entries: (ed2.entries || []).map((e) => ({ ...e, date: normDate(e.date) })), appraisals: (ed2.appraisals || []).map((a) => ({ ...a, assigned: normDate(a.assigned), due: normDate(a.due), respondedDate: normDate(a.respondedDate) })) });
+            const eps = (ed2.periods || []).map((p2) => ({ ...p2, startDate: normDate(p2.startDate), endDate: normDate(p2.endDate) }));
+            setEmpData({ kpis: ed2.kpis || [], entries: (ed2.entries || []).map((e) => ({ ...e, date: normDate(e.date) })), appraisals: (ed2.appraisals || []).map((a) => ({ ...a, assigned: normDate(a.assigned), due: normDate(a.due), respondedDate: normDate(a.respondedDate) })), periods: eps });
+            if (!mgrViewPeriodId) {
+              const act = eps.find((p2) => String(p2.active).toLowerCase() === "yes") || eps[eps.length - 1];
+              setMgrViewPeriodId(act ? act.id : "");
+            }
           }
         }
       }
@@ -7376,7 +7386,7 @@ function ManagerApp() {
     }
     setSyncing(false);
   };
-  const getReview = (kpiId) => reviews.find((r2) => r2.employeeId === selectedEmpId && r2.kpiId === kpiId);
+  const getReview = (kpiId) => reviews.find((r2) => r2.employeeId === selectedEmpId && r2.kpiId === kpiId && String(r2.periodId || "") === String(mgrViewPeriodId || ""));
   const openReview = (kpiId) => {
     const existing = getReview(kpiId);
     setReviewForm({ score: existing?.score ?? "", notes: existing?.notes ?? "" });
@@ -7385,9 +7395,9 @@ function ManagerApp() {
   const saveReview = async () => {
     if (!editingReview || !selectedEmpId) return;
     const score = reviewForm.score === "" ? "" : Math.max(0, Math.min(200, Math.round(Number(reviewForm.score))));
-    const rev = { employeeId: selectedEmpId, kpiId: editingReview, score, notes: reviewForm.notes };
+    const rev = { employeeId: selectedEmpId, kpiId: editingReview, score, notes: reviewForm.notes, periodId: mgrViewPeriodId || "" };
     setReviews((prev) => {
-      const existing = prev.find((r2) => r2.employeeId === selectedEmpId && r2.kpiId === editingReview);
+      const existing = prev.find((r2) => r2.employeeId === selectedEmpId && r2.kpiId === editingReview && String(r2.periodId || "") === String(mgrViewPeriodId || ""));
       if (existing) return prev.map((r2) => r2 === existing ? { ...r2, score, notes: rev.notes, updated: (/* @__PURE__ */ new Date()).toISOString().split("T")[0] } : r2);
       return [...prev, { id: "tmp-" + Date.now(), ...rev, updated: (/* @__PURE__ */ new Date()).toISOString().split("T")[0] }];
     });
@@ -7402,14 +7412,29 @@ function ManagerApp() {
     }
     setSyncing(false);
   };
-  const { kpis, entries, appraisals } = empData;
+  const { kpis, entries, appraisals, periods } = empData;
+  const activeEmpPeriodId = (() => {
+    const a = periods.find((p2) => String(p2.active).toLowerCase() === "yes");
+    return a ? a.id : periods.length ? periods[periods.length - 1].id : "";
+  })();
+  const knownPeriodIds = periods.map((p2) => p2.id);
+  const belongsToView = (row) => {
+    const pid = row.periodId || "";
+    if (!mgrViewPeriodId) return true;
+    if (!pid || !knownPeriodIds.includes(pid)) return mgrViewPeriodId === activeEmpPeriodId;
+    return pid === mgrViewPeriodId;
+  };
+  const scopedKpis = periods.length ? kpis.filter(belongsToView) : kpis;
+  const scopedEntries = periods.length ? entries.filter(belongsToView) : entries;
+  const currentEmpPeriod = periods.find((p2) => p2.id === mgrViewPeriodId) || null;
+  const isPastEmpPeriod = currentEmpPeriod && mgrViewPeriodId !== activeEmpPeriodId;
   const selectedEmp = employees.find((e) => e.id === selectedEmpId);
   const stats = reactExports.useMemo(() => {
     const m2 = {};
-    kpis.forEach((k2) => {
+    scopedKpis.forEach((k2) => {
       m2[k2.id] = { count: 0, hours: 0, recent: null };
     });
-    entries.forEach((e) => {
+    scopedEntries.forEach((e) => {
       if (m2[e.kpiId]) {
         m2[e.kpiId].count++;
         m2[e.kpiId].hours += Number(e.hours) || 0;
@@ -7417,18 +7442,18 @@ function ManagerApp() {
       }
     });
     return m2;
-  }, [entries, kpis]);
-  entries.reduce((s, e) => s + (Number(e.hours) || 0), 0);
-  const filteredEntries = filterKpi === "all" ? entries : entries.filter((e) => e.kpiId === filterKpi);
+  }, [scopedEntries, scopedKpis]);
+  scopedEntries.reduce((s, e) => s + (Number(e.hours) || 0), 0);
+  const filteredEntries = filterKpi === "all" ? scopedEntries : scopedEntries.filter((e) => e.kpiId === filterKpi);
   const getKpi = (id2) => kpis.find((k2) => k2.id === id2);
   const filteredEmployees = employees.filter(
     (e) => !empSearch || e.name.toLowerCase().includes(empSearch.toLowerCase()) || (e.title || "").toLowerCase().includes(empSearch.toLowerCase())
   );
   const overallScore = reactExports.useMemo(() => {
-    const scored = kpis.map((k2) => getReview(k2.id)).filter((r2) => r2 && r2.score !== "" && r2.score !== null && !isNaN(r2.score));
+    const scored = scopedKpis.map((k2) => getReview(k2.id)).filter((r2) => r2 && r2.score !== "" && r2.score !== null && !isNaN(r2.score));
     if (!scored.length) return null;
     return Math.round(scored.reduce((s, r2) => s + Number(r2.score), 0) / scored.length);
-  }, [reviews, kpis, selectedEmpId]);
+  }, [reviews, scopedKpis, selectedEmpId, mgrViewPeriodId]);
   const resolveRange = (range) => {
     const today = /* @__PURE__ */ new Date();
     const iso = (d) => d.toISOString().split("T")[0];
@@ -7468,7 +7493,7 @@ function ManagerApp() {
     kpis.forEach((k2) => {
       entriesByKpi[k2.id] = [];
     });
-    const exportEntries = entries.filter((e) => inRange(e.date));
+    const exportEntries = scopedEntries.filter((e) => inRange(e.date));
     exportEntries.forEach((e) => {
       if (entriesByKpi[e.kpiId]) entriesByKpi[e.kpiId].push(e);
     });
@@ -7476,7 +7501,7 @@ function ManagerApp() {
     const exportEntryCount = exportEntries.length;
     const exportTotalHours = exportEntries.reduce((s, e) => s + (Number(e.hours) || 0), 0);
     const exportStats = {};
-    kpis.forEach((k2) => {
+    scopedKpis.forEach((k2) => {
       exportStats[k2.id] = { count: 0, hours: 0 };
     });
     exportEntries.forEach((e) => {
@@ -7485,7 +7510,7 @@ function ManagerApp() {
         exportStats[e.kpiId].hours += Number(e.hours) || 0;
       }
     });
-    const kpiSections = kpis.map((k2, i) => {
+    const kpiSections = scopedKpis.map((k2, i) => {
       const s = exportStats[k2.id] || { count: 0, hours: 0 };
       const rev = getReview(k2.id);
       const scopeItems = k2.scope ? k2.scope.split(";").map((x2) => x2.trim()).filter(Boolean) : [];
@@ -7496,7 +7521,7 @@ function ManagerApp() {
     }).join("");
     const appraisalSection = appraisals.length ? `<div style="border-top:2px solid #e8e6e0;padding-top:28px;margin-top:8px;"><h2 style="font-size:18px;font-weight:700;margin:0 0 20px;">Appraisal Responses</h2>${appraisals.map((a) => `<div style="page-break-inside:avoid;margin-bottom:24px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px;"><h3 style="margin:0;font-size:15px;font-weight:700;color:#2d3142;">${esc(a.title)}</h3><span style="font-size:11px;font-weight:700;color:#fff;padding:3px 10px;border-radius:4px;background:${a.status === "completed" ? "#4a7c59" : a.status === "draft" ? "#c9962b" : "#999"};">${a.status === "completed" ? "Completed" : a.status === "draft" ? "Draft" : "Pending"}</span></div>${a.description ? `<p style="font-size:12px;color:#888;margin:0 0 8px;font-style:italic;">${esc(a.description)}</p>` : ""}${a.response ? `<div style="background:#f8f6f1;border-radius:8px;padding:14px 16px;"><p style="font-size:13px;color:#444;line-height:1.7;margin:0;white-space:pre-wrap;">${esc(a.response)}</p>${a.respondedDate ? `<p style="font-size:11px;color:#aaa;margin:8px 0 0;font-family:'IBM Plex Mono',monospace;">Responded ${fmtDateGB(a.respondedDate)}</p>` : ""}</div>` : `<p style="font-size:13px;color:#aaa;font-style:italic;">Awaiting response.</p>`}</div>`).join("")}</div>` : "";
     const mgrName = getMgrName();
-    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>KPI Review — ${esc(selectedEmp.name)} — ${today}</title><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"><style>*{box-sizing:border-box}body{font-family:Manrope,sans-serif;max-width:850px;margin:0 auto;padding:40px 32px;color:#2d3142;background:#fff;line-height:1.5}@media print{body{padding:20px}}</style></head><body><div style="border-bottom:3px solid #2d3142;padding-bottom:16px;margin-bottom:32px;"><h1 style="margin:0;font-size:28px;font-weight:800;">KPI Review Report</h1><p style="margin:6px 0 0;font-size:14px;color:#888;font-family:'IBM Plex Mono',monospace;">${esc(selectedEmp.name)}${selectedEmp.title ? " · " + esc(selectedEmp.title) : ""}</p>${mgrName ? `<p style="margin:4px 0 0;font-size:13px;color:#aaa;font-family:'IBM Plex Mono',monospace;">Reviewed by ${esc(mgrName)}</p>` : ""}<p style="margin:4px 0 0;font-size:13px;color:#aaa;font-family:'IBM Plex Mono',monospace;">Generated ${today} · Period: ${rng.label}</p></div><div style="margin-bottom:36px;"><h2 style="font-size:18px;font-weight:700;margin:0 0 14px;">Summary</h2><div style="display:flex;gap:32px;margin-bottom:16px;"><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${exportEntryCount}</span><br><span style="font-size:12px;color:#999;">entries</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${exportTotalHours.toFixed(1)}</span><br><span style="font-size:12px;color:#999;">hours</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${kpis.length}</span><br><span style="font-size:12px;color:#999;">KPIs</span></div>${overallScore !== null ? `<div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;color:#c9962b;">${overallScore}%</span><br><span style="font-size:12px;color:#999;">avg score</span></div>` : ""}</div></div><div style="border-top:2px solid #e8e6e0;padding-top:28px;">${kpiSections}</div>${appraisalSection}<div style="margin-top:40px;padding-top:16px;border-top:1px solid #e8e6e0;"><p style="font-size:11px;color:#aaa;font-family:'IBM Plex Mono',monospace;">End of report · ${exportEntryCount} entries · ${exportTotalHours.toFixed(1)} hours · ${rng.label}</p></div></body></html>`;
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>KPI Review — ${esc(selectedEmp.name)} — ${today}</title><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"><style>*{box-sizing:border-box}body{font-family:Manrope,sans-serif;max-width:850px;margin:0 auto;padding:40px 32px;color:#2d3142;background:#fff;line-height:1.5}@media print{body{padding:20px}}</style></head><body><div style="border-bottom:3px solid #2d3142;padding-bottom:16px;margin-bottom:32px;"><h1 style="margin:0;font-size:28px;font-weight:800;">KPI Review Report</h1><p style="margin:6px 0 0;font-size:14px;color:#888;font-family:'IBM Plex Mono',monospace;">${esc(selectedEmp.name)}${selectedEmp.title ? " · " + esc(selectedEmp.title) : ""}</p>${mgrName ? `<p style="margin:4px 0 0;font-size:13px;color:#aaa;font-family:'IBM Plex Mono',monospace;">Reviewed by ${esc(mgrName)}</p>` : ""}<p style="margin:4px 0 0;font-size:13px;color:#aaa;font-family:'IBM Plex Mono',monospace;">Generated ${today} · Period: ${rng.label}</p></div><div style="margin-bottom:36px;"><h2 style="font-size:18px;font-weight:700;margin:0 0 14px;">Summary</h2><div style="display:flex;gap:32px;margin-bottom:16px;"><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${exportEntryCount}</span><br><span style="font-size:12px;color:#999;">entries</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${exportTotalHours.toFixed(1)}</span><br><span style="font-size:12px;color:#999;">hours</span></div><div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;">${scopedKpis.length}</span><br><span style="font-size:12px;color:#999;">KPIs</span></div>${overallScore !== null ? `<div><span style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;color:#c9962b;">${overallScore}%</span><br><span style="font-size:12px;color:#999;">avg score</span></div>` : ""}</div></div><div style="border-top:2px solid #e8e6e0;padding-top:28px;">${kpiSections}</div>${appraisalSection}<div style="margin-top:40px;padding-top:16px;border-top:1px solid #e8e6e0;"><p style="font-size:11px;color:#aaa;font-family:'IBM Plex Mono',monospace;">End of report · ${exportEntryCount} entries · ${exportTotalHours.toFixed(1)} hours · ${rng.label}</p></div></body></html>`;
     try {
       const blob = new Blob([html], { type: "text/html" });
       const url = URL.createObjectURL(blob);
@@ -7568,19 +7593,34 @@ function ManagerApp() {
       /* @__PURE__ */ jsxRuntimeExports.jsx("button", { style: { ...S.linkBtn, marginTop: 8, padding: "4px 0" }, onClick: () => openReview(kpi.id), children: rev ? "Edit review" : "Add review" })
     ] });
   };
-  const renderEmployeeSelector = () => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.selectorBar, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: selectedEmpId, onChange: (e) => setSelectedEmpId(e.target.value), style: { ...S.input, maxWidth: 320 }, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "Select employee…" }),
-      employees.map((e) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: e.id, children: [
-        e.name,
-        e.title ? " — " + e.title : ""
-      ] }, e.id))
+  const renderEmployeeSelector = () => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.selectorBar, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: selectedEmpId, onChange: (e) => setSelectedEmpId(e.target.value), style: { ...S.input, maxWidth: 320 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "Select employee…" }),
+        employees.map((e) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: e.id, children: [
+          e.name,
+          e.title ? " — " + e.title : ""
+        ] }, e.id))
+      ] }),
+      selectedEmp && !empLoading && periods.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("select", { value: mgrViewPeriodId, onChange: (e) => {
+        setMgrViewPeriodId(e.target.value);
+        setExpandedDashKpi(null);
+        setExpandedKpi(null);
+      }, style: { ...S.input, maxWidth: 200 }, children: periods.map((p2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: p2.id, children: [
+        p2.label,
+        p2.id === activeEmpPeriodId ? " (current)" : ""
+      ] }, p2.id)) }),
+      empLoading && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 12, color: "#999", fontFamily: "'IBM Plex Mono', monospace" }, children: "loading…" }),
+      selectedEmp && !empLoading && overallScore !== null && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", color: "#a07820", fontWeight: 600 }, children: [
+        "avg ",
+        overallScore,
+        "%"
+      ] })
     ] }),
-    empLoading && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 12, color: "#999", fontFamily: "'IBM Plex Mono', monospace" }, children: "loading…" }),
-    selectedEmp && !empLoading && overallScore !== null && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", color: "#a07820", fontWeight: 600 }, children: [
-      "avg ",
-      overallScore,
-      "%"
+    selectedEmp && !empLoading && isPastEmpPeriod && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginBottom: 16, padding: "8px 12px", background: "#fdf0e6", border: "1px solid #e0b894", borderRadius: 8, fontSize: 12, color: "#a86a2e", fontWeight: 600 }, children: [
+      "Viewing a past period — reviews you add here are recorded against ",
+      currentEmpPeriod ? currentEmpPeriod.label : "this period",
+      "."
     ] })
   ] });
   const noEmpMessage = /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: S.empty, children: [
@@ -7679,11 +7719,11 @@ function ManagerApp() {
           selectedEmp && /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: S.subtitle, children: [
             selectedEmp.name,
             " · ",
-            entries.length,
+            scopedEntries.length,
             " ",
-            entries.length === 1 ? "entry" : "entries",
+            scopedEntries.length === 1 ? "entry" : "entries",
             " across ",
-            kpis.length,
+            scopedKpis.length,
             " KPIs"
           ] })
         ] }) }),
@@ -7693,11 +7733,11 @@ function ManagerApp() {
           /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.emptyText, children: "No KPI data found for this employee." }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { color: "#888", fontSize: 14 }, children: "Check their tracker URL is correct and their setup is complete." })
         ] }),
-        selectedEmpId && kpis.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.cardGrid, children: kpis.map((k2) => {
+        selectedEmpId && kpis.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.cardGrid, children: scopedKpis.map((k2) => {
           const s = stats[k2.id] || { count: 0, recent: null };
           const isOpen = expandedDashKpi === k2.id;
           const rev = getReview(k2.id);
-          const kpiEntries = isOpen ? entries.filter((e) => e.kpiId === k2.id).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5) : [];
+          const kpiEntries = isOpen ? scopedEntries.filter((e) => e.kpiId === k2.id).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5) : [];
           return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { ...S.card, gridColumn: isOpen ? "1 / -1" : "auto", cursor: "pointer" }, onClick: () => setExpandedDashKpi(isOpen ? null : k2.id), children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { height: 4, background: k2.color } }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { padding: "16px 18px 18px" }, children: [
@@ -7774,12 +7814,12 @@ function ManagerApp() {
         ] }) }),
         renderEmployeeSelector(),
         !selectedEmpId && noEmpMessage,
-        selectedEmpId && entries.length === 0 && !empLoading && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.empty, children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.emptyText, children: "No entries logged yet." }) }),
-        selectedEmpId && entries.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 8 }, children: [
+        selectedEmpId && scopedEntries.length === 0 && !empLoading && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: S.empty, children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: S.emptyText, children: "No entries logged yet." }) }),
+        selectedEmpId && scopedEntries.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 8 }, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }, children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: filterKpi, onChange: (e) => setFilterKpi(e.target.value), style: { ...S.input, maxWidth: 260 }, children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "all", children: "All KPIs" }),
-              kpis.map((k2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: k2.id, children: k2.name }, k2.id))
+              scopedKpis.map((k2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: k2.id, children: k2.name }, k2.id))
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { fontSize: 13, color: "#999", fontFamily: "'IBM Plex Mono', monospace" }, children: [
               filteredEntries.length,
@@ -7819,7 +7859,7 @@ function ManagerApp() {
         ] }) }),
         renderEmployeeSelector(),
         !selectedEmpId && noEmpMessage,
-        selectedEmpId && kpis.map((k2) => {
+        selectedEmpId && scopedKpis.map((k2) => {
           const isExpanded = expandedKpi === k2.id;
           const s = stats[k2.id] || { count: 0 };
           const rev = getReview(k2.id);
