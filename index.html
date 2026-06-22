@@ -7197,6 +7197,7 @@ function KPITracker() {
           if (data.kpis?.length) setKpis(data.kpis);
           if (data.entries) setEntries(data.entries.map((e) => ({ ...e, date: normDate(e.date) })));
           if (data.appraisals) setAppraisals(data.appraisals.map((a) => ({ ...a, assigned: normDate(a.assigned), due: normDate(a.due), respondedDate: normDate(a.respondedDate) })));
+          capturePeriods(data);
           setConnected(true);
         } else if (data?.error) {
           flash(data.error, false);
@@ -8417,12 +8418,12 @@ const S = {
   entryCard: { background: "#fff", borderRadius: 10, padding: "16px 20px", marginBottom: 10, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" },
   entryHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
   entryTitleRow: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" },
-  kpiBadge: { fontSize: 11, fontWeight: 700, color: "#fff", padding: "2px 8px", borderRadius: 4, whiteSpace: "nowrap" },
+  kpiBadge: { fontSize: 11, fontWeight: 700, color: "#fff", padding: "2px 8px", borderRadius: 4, overflowWrap: "anywhere", wordBreak: "break-word", maxWidth: "100%" },
   entryDate: { fontSize: 12, color: "#aaa", fontFamily: "'IBM Plex Mono', monospace" },
   entryTitle: { fontSize: 15, fontWeight: 700, color: "#2d3142", margin: 0, overflowWrap: "anywhere", wordBreak: "break-word" },
   entryHours: { fontFamily: "'IBM Plex Mono', monospace", fontSize: 16, fontWeight: 600, color: "#2d3142", flexShrink: 0 },
   entryDesc: { fontSize: 13, color: "#666", lineHeight: 1.5, margin: "8px 0 0", overflowWrap: "anywhere", wordBreak: "break-word" },
-  entryEvidence: { fontSize: 12, color: "#5b6abf", fontFamily: "'IBM Plex Mono', monospace", margin: "6px 0 0" },
+  entryEvidence: { fontSize: 12, color: "#5b6abf", fontFamily: "'IBM Plex Mono', monospace", margin: "6px 0 0", overflowWrap: "anywhere", wordBreak: "break-word" },
   entryActions: { display: "flex", gap: 6, marginTop: 10, alignItems: "center" },
   fwCard: { background: "#fff", borderRadius: 10, overflow: "hidden", marginBottom: 10, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" },
   fwHeader: { display: "flex", alignItems: "center", gap: 14, padding: "16px 20px", cursor: "pointer", userSelect: "none" },
