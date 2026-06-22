@@ -157,25 +157,25 @@ function saveReview(rev) {
   const sheet = ss.getSheetByName('Reviews');
   const data = sheet.getDataRange().getValues();
   const updated = new Date().toISOString().split('T')[0];
+  const pid = rev.periodId || '';
 
-  // Look for existing review for this employee+kpi
+  // Match on employee + kpi + period so each period keeps its own review
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][1]) === String(rev.employeeId) && String(data[i][2]) === String(rev.kpiId)) {
-      sheet.getRange(i + 1, 1, 1, 6).setValues([[
+    if (String(data[i][1]) === String(rev.employeeId) && String(data[i][2]) === String(rev.kpiId) && String(data[i][6] || '') === String(pid)) {
+      sheet.getRange(i + 1, 1, 1, 7).setValues([[
         data[i][0], rev.employeeId, rev.kpiId,
         rev.score === '' || rev.score === null || rev.score === undefined ? '' : Number(rev.score),
-        rev.notes || '', updated
+        rev.notes || '', updated, pid
       ]]);
       return { success: true, id: String(data[i][0]) };
     }
   }
 
-  // New review
   const id = 'rev-' + Date.now().toString();
   sheet.appendRow([
     id, rev.employeeId, rev.kpiId,
     rev.score === '' || rev.score === null || rev.score === undefined ? '' : Number(rev.score),
-    rev.notes || '', updated
+    rev.notes || '', updated, pid
   ]);
   return { success: true, id: id };
 }
@@ -195,6 +195,20 @@ function deleteReview(id) {
 // ── Setup (run once) ─────────────────────────────────────────
 
 function setupSheet() {
+  // Safety guard: never wipe a sheet that already holds data.
+  function hasData(name) {
+    const s = ss.getSheetByName(name);
+    return s && s.getLastRow() > 1;
+  }
+  if (hasData('Employees') || hasData('Reviews')) {
+    try {
+      SpreadsheetApp.getUi().alert('Setup blocked: this sheet already contains data.\n\nRunning setup would erase it. To update the code instead, use Deploy \u2192 Manage deployments \u2192 edit \u2192 New version. No setup needed.');
+    } catch (e) {
+      throw new Error('Setup blocked: sheet already contains data. Use Manage deployments \u2192 New version to update code without wiping data.');
+    }
+    return;
+  }
+
   var eSheet = ss.getSheetByName('Employees');
   if (!eSheet) {
     eSheet = ss.insertSheet('Employees');
@@ -213,9 +227,9 @@ function setupSheet() {
   } else {
     rSheet.clear();
   }
-  rSheet.appendRow(['id', 'employeeId', 'kpiId', 'score', 'notes', 'updated']);
+  rSheet.appendRow(['id', 'employeeId', 'kpiId', 'score', 'notes', 'updated', 'periodId']);
   rSheet.getRange('A:C').setNumberFormat('@');
-  rSheet.getRange('F:F').setNumberFormat('@');
+  rSheet.getRange('F:G').setNumberFormat('@');
   rSheet.setFrozenRows(1);
   rSheet.autoResizeColumns(1, 6);
 
