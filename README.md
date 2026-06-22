@@ -1,109 +1,246 @@
-# KPI Tracker
+// ═══════════════════════════════════════════════════════════════
+// KPI Tracker — MANAGER Backend (Google Apps Script)
+// ═══════════════════════════════════════════════════════════════
+//
+// This backend stores the manager's employee register and the
+// manager's own notes/scores. It does NOT store employee KPI data —
+// that stays in each employee's own sheet and is read directly
+// (read-only) by the manager app via their deployment URLs.
+//
+// SETUP:
+// 1. Create a new Google Sheet (this is YOUR manager sheet)
+// 2. Extensions → Apps Script
+// 3. Delete default contents, paste this entire file
+// 4. Function dropdown → select "setupSheet" → Run → authorise
+// 5. Deploy → New deployment → Web app
+//    - Execute as: Me
+//    - Who has access: Anyone
+// 6. Copy the deployment URL → paste into the manager app settings
+//
+// REDEPLOYING after edits:
+//    Deploy → Manage deployments → ✏ edit → New version → Deploy
+//    (this keeps the same URL)
+// ═══════════════════════════════════════════════════════════════
 
-A lightweight KPI tracking app that runs in your browser and stores data in your own Google Sheet. Define your KPIs, log work against them, and export reports.
+const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-**Live app:** [https://yourusername.github.io/kpi-tracker/](https://yourusername.github.io/kpi-tracker/)
+// ── HTTP handlers ────────────────────────────────────────────
 
-## Features
+function doGet(e) {
+  const lock = LockService.getScriptLock();
+  lock.tryLock(10000);
+  try {
+    return send(getAllData());
+  } catch (err) {
+    return send({ error: err.message });
+  } finally {
+    lock.releaseLock();
+  }
+}
 
-- Define custom KPIs with scope, metrics, and reporting methodology
-- Log work entries against your KPIs with dates, descriptions, and evidence
-- Dashboard showing entry counts and recent activity
-- Filter and manage your work log
-- Export a formatted HTML report
-- Works on mobile, tablet, and desktop — add to your home screen for app-like access
-- All data stored in your own Google Sheet (nothing stored in the browser)
+function doPost(e) {
+  const lock = LockService.getScriptLock();
+  lock.tryLock(10000);
+  try {
+    const p = JSON.parse(e.postData.contents);
+    let result;
+    switch (p.action) {
+      case 'addEmployee':    result = addEmployee(p.data);    break;
+      case 'updateEmployee': result = updateEmployee(p.data); break;
+      case 'deleteEmployee': result = deleteEmployee(p.id);   break;
+      case 'saveReview':     result = saveReview(p.data);     break;
+      case 'deleteReview':   result = deleteReview(p.id);     break;
+      default:               result = { error: 'Unknown action: ' + p.action };
+    }
+    return send(result);
+  } catch (err) {
+    return send({ error: err.message });
+  } finally {
+    lock.releaseLock();
+  }
+}
 
-## Setup (5 minutes)
+function send(data) {
+  return ContentService
+    .createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}
 
-Each person sets up their own Google Sheet backend. Your data stays private in your own Google Drive.
+// ── Read ─────────────────────────────────────────────────────
 
-### 1. Create a Google Sheet
+function getAllData() {
+  return {
+    employees: readTab('Employees'),
+    reviews: readTab('Reviews')
+  };
+}
 
-Go to [sheets.new](https://sheets.new) to create a blank spreadsheet.
+function readTab(name) {
+  const sheet = ss.getSheetByName(name);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const [headers, ...rows] = sheet.getDataRange().getValues();
+  const tz = ss.getSpreadsheetTimeZone();
+  return rows.map(row => {
+    const obj = {};
+    headers.forEach((h, i) => {
+      let v = row[i];
+      if (v instanceof Date) {
+        v = Utilities.formatDate(v, tz, 'yyyy-MM-dd');
+      }
+      obj[h] = v;
+    });
+    if (obj.score !== undefined && obj.score !== '') obj.score = Number(obj.score);
+    if (obj.id !== undefined) obj.id = String(obj.id);
+    return obj;
+  });
+}
 
-### 2. Open the script editor
+// ── Employees ────────────────────────────────────────────────
+// Columns: id | name | title | apiUrl | added
 
-In your new sheet: **Extensions → Apps Script**
+function addEmployee(emp) {
+  const sheet = ss.getSheetByName('Employees');
+  if (!emp.id) emp.id = 'emp-' + Date.now().toString();
+  sheet.appendRow([
+    emp.id,
+    emp.name,
+    emp.title || '',
+    emp.apiUrl,
+    new Date().toISOString().split('T')[0]
+  ]);
+  return { success: true, employee: emp };
+}
 
-### 3. Paste the backend code
+function updateEmployee(emp) {
+  const sheet = ss.getSheetByName('Employees');
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(emp.id)) {
+      sheet.getRange(i + 1, 1, 1, 4).setValues([[
+        emp.id, emp.name, emp.title || '', emp.apiUrl
+      ]]);
+      return { success: true };
+    }
+  }
+  return { error: 'Employee not found: ' + emp.id };
+}
 
-- In the script editor, select all the default code in `Code.gs` and delete it
-- Open the [`backend-code.js`](backend-code.js) file from this repository
-- Copy the entire contents and paste it into `Code.gs`
-- Press **Ctrl+S** (or Cmd+S) to save
+function deleteEmployee(id) {
+  const sheet = ss.getSheetByName('Employees');
+  const data = sheet.getDataRange().getValues();
+  let found = false;
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(id)) {
+      sheet.deleteRow(i + 1);
+      found = true;
+      break;
+    }
+  }
+  if (!found) return { error: 'Employee not found: ' + id };
 
-### 4. Run the setup
+  // Cascade: remove this employee's reviews
+  const rSheet = ss.getSheetByName('Reviews');
+  const rData = rSheet.getDataRange().getValues();
+  for (let i = rData.length - 1; i >= 1; i--) {
+    if (String(rData[i][1]) === String(id)) {
+      rSheet.deleteRow(i + 1);
+    }
+  }
+  return { success: true };
+}
 
-- In the toolbar, click the function dropdown (it may say `doGet`) and select **`setupSheet`**
-- Click **▶ Run**
-- Google will ask you to authorise — click **Review permissions → your account → Advanced → "Go to Untitled project (unsafe)" → Allow**
-- You should see a popup: *"Setup complete"*
-- Switch back to your spreadsheet — you'll see **KPIs** and **Entries** tabs
+// ── Reviews (manager notes + score per employee per KPI) ────
+// Columns: id | employeeId | kpiId | score | notes | updated
+// Upsert: one review per employee+kpi combination
 
-> The "unsafe" warning is normal. It's your own script accessing your own spreadsheet.
+function saveReview(rev) {
+  const sheet = ss.getSheetByName('Reviews');
+  const data = sheet.getDataRange().getValues();
+  const updated = new Date().toISOString().split('T')[0];
+  const pid = rev.periodId || '';
 
-### 5. Deploy as a web app
+  // Match on employee + kpi + period so each period keeps its own review
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][1]) === String(rev.employeeId) && String(data[i][2]) === String(rev.kpiId) && String(data[i][6] || '') === String(pid)) {
+      sheet.getRange(i + 1, 1, 1, 7).setValues([[
+        data[i][0], rev.employeeId, rev.kpiId,
+        rev.score === '' || rev.score === null || rev.score === undefined ? '' : Number(rev.score),
+        rev.notes || '', updated, pid
+      ]]);
+      return { success: true, id: String(data[i][0]) };
+    }
+  }
 
-Back in the script editor:
+  const id = 'rev-' + Date.now().toString();
+  sheet.appendRow([
+    id, rev.employeeId, rev.kpiId,
+    rev.score === '' || rev.score === null || rev.score === undefined ? '' : Number(rev.score),
+    rev.notes || '', updated, pid
+  ]);
+  return { success: true, id: id };
+}
 
-1. **Deploy → New deployment**
-2. Click the ⚙ gear icon next to "Select type" → select **Web app**
-3. Set **Execute as:** to **Me**
-4. Set **Who has access:** to **Anyone**
-5. Click **Deploy**
-6. Copy the URL it gives you (starts with `https://script.google.com/macros/s/...`)
+function deleteReview(id) {
+  const sheet = ss.getSheetByName('Reviews');
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(id)) {
+      sheet.deleteRow(i + 1);
+      return { success: true };
+    }
+  }
+  return { error: 'Review not found: ' + id };
+}
 
-### 6. Connect the app
+// ── Setup (run once) ─────────────────────────────────────────
 
-1. Open the [KPI Tracker app](https://yourusername.github.io/kpi-tracker/)
-2. Paste your deployment URL
-3. Enter your name and role (optional — used in exported reports)
-4. Click **Connect**
+function setupSheet() {
+  // Safety guard: never wipe a sheet that already holds data.
+  function hasData(name) {
+    const s = ss.getSheetByName(name);
+    return s && s.getLastRow() > 1;
+  }
+  if (hasData('Employees') || hasData('Reviews')) {
+    try {
+      SpreadsheetApp.getUi().alert('Setup blocked: this sheet already contains data.\n\nRunning setup would erase it. To update the code instead, use Deploy \u2192 Manage deployments \u2192 edit \u2192 New version \u2192 Deploy. Your data is preserved and the period structure is added automatically.');
+    } catch (e) {
+      throw new Error('Setup blocked: sheet already contains data. Use Manage deployments \u2192 New version to update code without wiping data.');
+    }
+    return;
+  }
 
-You're done. Add your KPIs in the Framework tab, then start logging work.
+  var eSheet = ss.getSheetByName('Employees');
+  if (!eSheet) {
+    eSheet = ss.insertSheet('Employees');
+  } else {
+    eSheet.clear();
+  }
+  eSheet.appendRow(['id', 'name', 'title', 'apiUrl', 'added']);
+  eSheet.getRange('A:A').setNumberFormat('@');
+  eSheet.getRange('E:E').setNumberFormat('@');
+  eSheet.setFrozenRows(1);
+  eSheet.autoResizeColumns(1, 5);
 
-### Mobile access
+  var rSheet = ss.getSheetByName('Reviews');
+  if (!rSheet) {
+    rSheet = ss.insertSheet('Reviews');
+  } else {
+    rSheet.clear();
+  }
+  rSheet.appendRow(['id', 'employeeId', 'kpiId', 'score', 'notes', 'updated', 'periodId']);
+  rSheet.getRange('A:C').setNumberFormat('@');
+  rSheet.getRange('F:G').setNumberFormat('@');
+  rSheet.setFrozenRows(1);
+  rSheet.autoResizeColumns(1, 6);
 
-On your iPhone or iPad, open the app URL in Safari, tap the **Share** button, then **Add to Home Screen**. It launches full-screen like a native app.
+  var sheet1 = ss.getSheetByName('Sheet1');
+  if (sheet1 && sheet1.getLastRow() === 0) {
+    ss.deleteSheet(sheet1);
+  }
 
-## Updating the backend
-
-If the backend code is updated, paste the new version into your Apps Script editor, then:
-
-**Deploy → Manage deployments → ✏ edit → Version: New version → Deploy**
-
-Your URL stays the same.
-
-## Troubleshooting
-
-| Problem | Fix |
-|---------|-----|
-| "Anyone" option not available in deployment | Your Google account may be a Workspace/org account with restrictions. Use a personal Gmail account instead. |
-| Authorisation loops or fails | Try in an incognito window logged into just one Google account. |
-| "Could not reach API" in the app | Make sure you copied the **deployment** URL (ends in `/exec`), not the script editor URL. |
-| Data not showing after connect | Check your Google Sheet — the KPIs and Entries tabs should have headers. If not, re-run `setupSheet`. |
-
-
-## Review periods
-
-The app organises everything by review period (e.g. 1 April–31 March). In **Settings → Review Periods** you can:
-
-- Create a new period when a new appraisal year starts (it begins empty and becomes the active period for logging)
-- Import specific KPIs from a previous period into the new one (you choose which; name clashes are flagged but allowed)
-- Switch which period you're viewing — the dashboard, work log, framework, and export all re-scope to that period
-- Mark any period as the current (active) one, or delete a period and its data
-
-New entries are automatically filed into whichever period's date range covers the entry date. Past periods stay editable but are clearly marked.
-
-KPIs belong to a period. In the Framework tab you can add, edit, delete, and reassign a KPI to a different period.
-
-## Updating the backend later (without losing data)
-
-When a new version of the backend code is released:
-
-1. Open the app and **Export** a backup first (the HTML file doubles as a full backup).
-2. Paste the new code into Apps Script and save.
-3. **Deploy → Manage deployments → ✏ edit → New version → Deploy.** This keeps the same URL and never touches your data.
-
-**Never** re-run `setupSheet` on a sheet that already has data — it's there only for first-time setup, and it will now refuse to run if data exists. The first time the new code reads your sheet, it automatically adds the new period structure and files your existing entries into a default period.
+  try {
+    SpreadsheetApp.getUi().alert('Manager backend setup complete.\n\nEmployees and Reviews tabs created.\nNext: Deploy → New deployment → Web app.');
+  } catch (e) {
+    Logger.log('Setup complete.');
+  }
+}
